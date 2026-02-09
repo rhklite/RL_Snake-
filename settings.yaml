@@ -1,0 +1,13 @@
+gui:
+    display_app_name: "Snake Game"
+    world:
+        rows: 12
+        columns: 12
+        cell_size: 50
+    color:
+        snake:
+            body: [128, 189, 38]
+            head: [4, 74, 0]
+        grid: [30, 30, 60, 0]
+        background: [10, 10, 40]
+        next_to_die: [58, 125, 22]
