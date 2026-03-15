@@ -20,7 +20,7 @@ import { EventEmitter } from './events.js';
  * Emits:
  *   "score"     (score, highScore)
  *   "state"     (newState, prevState)
- *   "eat"       ()
+ *   "eat"       (position)
  */
 export const STATE = Object.freeze({
   IDLE: 'idle',

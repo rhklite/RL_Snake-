@@ -76,7 +76,6 @@ function render(timestamp) {
   renderer.drawSnake(game.snake);
   renderer.drawFood(game.food, timestamp);
   particles.draw(renderer.ctx);
-  renderer.drawScore(game.score, game.highScore);
 
   switch (game.state) {
     case STATE.IDLE:
