@@ -44,10 +44,13 @@ h1 {
   box-shadow:
     0 0 0 2px rgba(0, 210, 255, 0.2),
     0 8px 32px rgba(0, 0, 0, 0.5);
+  max-width: 100%;
 }
 
 canvas {
   display: block;
+  max-width: 100%;
+  height: auto;
 }
 
 /* ---- Score bar ---- */
@@ -76,9 +79,14 @@ canvas {
   line-height: 1.6;
 }
 
-/* ---- Mobile touch area ---- */
+/* ---- Mobile ---- */
+@media (max-width: 520px) {
+  h1 { font-size: 1.3rem; }
+  .scoreboard { font-size: 0.85rem; }
+}
+
 @media (hover: none) and (pointer: coarse) {
-  .controls-hint {
-    display: none;
+  .controls-hint::after {
+    content: 'Swipe to move \00B7 Tap to start';
   }
 }

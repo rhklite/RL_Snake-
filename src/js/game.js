@@ -6,13 +6,21 @@ import {
 } from './constants.js';
 import { Snake } from './snake.js';
 import { Food } from './food.js';
+import { EventEmitter } from './events.js';
 
 /**
  * Core game state machine.
- * States: idle → running → paused / gameover → idle
  *
- * The Game class owns the Snake and Food but knows nothing about
- * rendering or input — those are plugged in externally.
+ *   idle ──▶ running ──▶ gameover
+ *               │  ▲         │
+ *               ▼  │         │
+ *            paused          │
+ *               ◄────────────┘ (restart)
+ *
+ * Emits:
+ *   "score"     (score, highScore)
+ *   "state"     (newState, prevState)
+ *   "eat"       ()
  */
 export const STATE = Object.freeze({
   IDLE: 'idle',
@@ -21,20 +29,26 @@ export const STATE = Object.freeze({
   GAME_OVER: 'gameover',
 });
 
-export class Game {
+export class Game extends EventEmitter {
   constructor() {
+    super();
     this.snake = new Snake();
     this.food = new Food();
-    this.state = STATE.IDLE;
+    this._state = STATE.IDLE;
     this.score = 0;
     this.highScore = this._loadHighScore();
     this.speed = INITIAL_SPEED;
-    this._onScoreChange = null;
   }
 
-  /** Optional callback when score/highScore change (for UI). */
-  set onScoreChange(fn) {
-    this._onScoreChange = fn;
+  get state() {
+    return this._state;
+  }
+
+  set state(next) {
+    const prev = this._state;
+    if (prev === next) return;
+    this._state = next;
+    this.emit('state', next, prev);
   }
 
   start() {
@@ -43,7 +57,7 @@ export class Game {
     this.score = 0;
     this.speed = INITIAL_SPEED;
     this.state = STATE.RUNNING;
-    this._emitScore();
+    this.emit('score', this.score, this.highScore);
   }
 
   togglePause() {
@@ -56,7 +70,7 @@ export class Game {
 
   /**
    * Advance the simulation by one tick.
-   * Returns true if the frame resulted in a meaningful state change.
+   * @returns {boolean} true when something happened.
    */
   tick() {
     if (this.state !== STATE.RUNNING) return false;
@@ -72,13 +86,14 @@ export class Game {
       this.snake.grow();
       this.score += POINTS_PER_FOOD;
       this.speed = Math.min(MAX_SPEED, this.speed + SPEED_INCREMENT);
+      this.emit('eat');
 
       if (!this.food.spawn(this.snake.occupiedSet)) {
         this._endGame();
         return true;
       }
 
-      this._emitScore();
+      this.emit('score', this.score, this.highScore);
     }
 
     return true;
@@ -95,11 +110,7 @@ export class Game {
       this.highScore = this.score;
       this._saveHighScore();
     }
-    this._emitScore();
-  }
-
-  _emitScore() {
-    this._onScoreChange?.(this.score, this.highScore);
+    this.emit('score', this.score, this.highScore);
   }
 
   _loadHighScore() {

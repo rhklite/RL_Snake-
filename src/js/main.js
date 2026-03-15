@@ -4,7 +4,7 @@ import { InputHandler } from './input.js';
 
 /**
  * Bootstrap — wires Game, Renderer, and InputHandler together
- * and runs the variable-timestep game loop.
+ * and runs a variable-timestep game loop via requestAnimationFrame.
  */
 const canvas = document.getElementById('game-canvas');
 const scoreEl = document.getElementById('score');
@@ -14,13 +14,13 @@ const game = new Game();
 const renderer = new Renderer(canvas);
 const input = new InputHandler();
 
-function updateScoreboard(score, highScore) {
+game.on('score', (score, highScore) => {
   scoreEl.textContent = score;
   highScoreEl.textContent = highScore;
-}
+});
 
-game.onScoreChange = updateScoreboard;
-updateScoreboard(game.score, game.highScore);
+scoreEl.textContent = game.score;
+highScoreEl.textContent = game.highScore;
 
 input.bind({
   onDirection(dir) {
@@ -51,13 +51,13 @@ function loop(timestamp) {
     }
   }
 
-  render();
+  render(timestamp);
 }
 
-function render() {
+function render(timestamp) {
   renderer.clear();
   renderer.drawSnake(game.snake);
-  renderer.drawFood(game.food);
+  renderer.drawFood(game.food, timestamp);
   renderer.drawScore(game.score, game.highScore);
 
   switch (game.state) {
@@ -70,7 +70,7 @@ function render() {
     case STATE.GAME_OVER:
       renderer.drawOverlay(
         'Game Over',
-        `Score: ${game.score}  —  Press Space to Retry`,
+        `Score: ${game.score}  \u2014  Press Space to Retry`,
       );
       break;
   }

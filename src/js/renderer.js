@@ -2,7 +2,7 @@ import { GRID, CANVAS, COLORS } from './constants.js';
 
 /**
  * Draws every visual element onto an HTML Canvas.
- * Stateless — give it data each frame and it renders.
+ * Stateless per-frame — call methods in order each animation frame.
  */
 export class Renderer {
   /** @param {HTMLCanvasElement} canvas */
@@ -20,97 +20,132 @@ export class Renderer {
   }
 
   _drawGridLines() {
-    this.ctx.strokeStyle = COLORS.GRID_LINE;
-    this.ctx.lineWidth = 1;
+    const { ctx } = this;
+    ctx.strokeStyle = COLORS.GRID_LINE;
+    ctx.lineWidth = 1;
     for (let x = 0; x <= GRID.COLS; x++) {
       const px = x * this._cellSize;
-      this.ctx.beginPath();
-      this.ctx.moveTo(px, 0);
-      this.ctx.lineTo(px, CANVAS.HEIGHT);
-      this.ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, CANVAS.HEIGHT);
+      ctx.stroke();
     }
     for (let y = 0; y <= GRID.ROWS; y++) {
       const py = y * this._cellSize;
-      this.ctx.beginPath();
-      this.ctx.moveTo(0, py);
-      this.ctx.lineTo(CANVAS.WIDTH, py);
-      this.ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, py);
+      ctx.lineTo(CANVAS.WIDTH, py);
+      ctx.stroke();
     }
   }
 
   /** @param {import('./snake.js').Snake} snake */
   drawSnake(snake) {
+    const { ctx } = this;
     const s = this._cellSize;
     const pad = 2;
+    const len = snake.segments.length;
 
-    snake.segments.forEach((seg, i) => {
+    for (let i = len - 1; i >= 0; i--) {
+      const seg = snake.segments[i];
       const x = seg.x * s + pad;
       const y = seg.y * s + pad;
       const size = s - pad * 2;
 
-      this.ctx.fillStyle = i === 0 ? COLORS.SNAKE_HEAD : COLORS.SNAKE_BODY;
-      this.ctx.strokeStyle = COLORS.SNAKE_STROKE;
-      this.ctx.lineWidth = 1.5;
+      if (i === 0) {
+        ctx.fillStyle = COLORS.SNAKE_HEAD;
+      } else {
+        const t = i / Math.max(len - 1, 1);
+        ctx.fillStyle = lerpColor(COLORS.SNAKE_HEAD, COLORS.SNAKE_BODY, t);
+      }
+
+      ctx.strokeStyle = COLORS.SNAKE_STROKE;
+      ctx.lineWidth = 1.5;
 
       const radius = i === 0 ? size / 3 : size / 5;
       this._roundRect(x, y, size, size, radius);
-      this.ctx.fill();
-      this.ctx.stroke();
-    });
+      ctx.fill();
+      ctx.stroke();
+    }
   }
 
-  /** @param {import('./food.js').Food} food */
-  drawFood(food) {
+  /**
+   * @param {import('./food.js').Food} food
+   * @param {number} timestamp - used for the pulsing glow animation
+   */
+  drawFood(food, timestamp = 0) {
+    const { ctx } = this;
     const s = this._cellSize;
     const cx = food.position.x * s + s / 2;
     const cy = food.position.y * s + s / 2;
-    const r = s / 2 - 3;
+    const baseR = s / 2 - 3;
 
-    this.ctx.shadowColor = COLORS.FOOD_GLOW;
-    this.ctx.shadowBlur = 12;
+    const pulse = 1 + 0.12 * Math.sin(timestamp / 300);
 
-    this.ctx.fillStyle = COLORS.FOOD;
-    this.ctx.beginPath();
-    this.ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    this.ctx.fill();
+    ctx.shadowColor = COLORS.FOOD_GLOW;
+    ctx.shadowBlur = 10 + 6 * pulse;
 
-    this.ctx.shadowBlur = 0;
+    ctx.fillStyle = COLORS.FOOD;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseR * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
   }
 
   drawScore(score, highScore) {
-    this.ctx.fillStyle = COLORS.TEXT;
-    this.ctx.font = 'bold 14px "Inter", system-ui, sans-serif';
-    this.ctx.textAlign = 'left';
-    this.ctx.fillText(`Score: ${score}`, 10, 20);
-    this.ctx.textAlign = 'right';
-    this.ctx.fillText(`Best: ${highScore}`, CANVAS.WIDTH - 10, 20);
+    const { ctx } = this;
+    ctx.fillStyle = COLORS.TEXT;
+    ctx.font = 'bold 14px "Inter", system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Score: ${score}`, 10, 20);
+    ctx.textAlign = 'right';
+    ctx.fillText(`Best: ${highScore}`, CANVAS.WIDTH - 10, 20);
   }
 
   drawOverlay(title, subtitle) {
-    this.ctx.fillStyle = COLORS.OVERLAY;
-    this.ctx.fillRect(0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
+    const { ctx } = this;
+    ctx.fillStyle = COLORS.OVERLAY;
+    ctx.fillRect(0, 0, CANVAS.WIDTH, CANVAS.HEIGHT);
 
-    this.ctx.fillStyle = COLORS.TEXT;
-    this.ctx.textAlign = 'center';
+    ctx.fillStyle = COLORS.TEXT;
+    ctx.textAlign = 'center';
 
-    this.ctx.font = 'bold 28px "Inter", system-ui, sans-serif';
-    this.ctx.fillText(title, CANVAS.WIDTH / 2, CANVAS.HEIGHT / 2 - 10);
+    ctx.font = 'bold 28px "Inter", system-ui, sans-serif';
+    ctx.fillText(title, CANVAS.WIDTH / 2, CANVAS.HEIGHT / 2 - 10);
 
-    this.ctx.font = '14px "Inter", system-ui, sans-serif';
-    this.ctx.fillText(subtitle, CANVAS.WIDTH / 2, CANVAS.HEIGHT / 2 + 20);
+    ctx.font = '14px "Inter", system-ui, sans-serif';
+    ctx.fillText(subtitle, CANVAS.WIDTH / 2, CANVAS.HEIGHT / 2 + 20);
   }
 
   _roundRect(x, y, w, h, r) {
-    this.ctx.beginPath();
-    this.ctx.moveTo(x + r, y);
-    this.ctx.lineTo(x + w - r, y);
-    this.ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    this.ctx.lineTo(x + w, y + h - r);
-    this.ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    this.ctx.lineTo(x + r, y + h);
-    this.ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    this.ctx.lineTo(x, y + r);
-    this.ctx.quadraticCurveTo(x, y, x + r, y);
-    this.ctx.closePath();
+    const { ctx } = this;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
   }
+}
+
+/* ---- colour helpers ---- */
+
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+}
+
+function lerpColor(hexA, hexB, t) {
+  const a = hexToRgb(hexA);
+  const b = hexToRgb(hexB);
+  const r = Math.round(a[0] + (b[0] - a[0]) * t);
+  const g = Math.round(a[1] + (b[1] - a[1]) * t);
+  const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+  return `rgb(${r},${g},${bl})`;
 }
