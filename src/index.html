@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Snake</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"
+    rel="stylesheet"
+  />
+  <!-- ONNX Runtime Web (wasm backend) — only used when AI mode is active -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.3/dist/ort.min.js"></script>
+</head>
+<body>
+  <h1>Snake</h1>
+
+  <div class="toolbar">
+    <div class="scoreboard">
+      <span>Score: <strong id="score">0</strong></span>
+      <span>Best: <strong id="high-score">0</strong></span>
+    </div>
+
+    <div class="mode-selector">
+      <label for="mode-toggle">Mode:</label>
+      <select id="mode-toggle">
+        <option value="human" selected>Human</option>
+        <option value="ai">AI (ONNX)</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="ai-panel" class="ai-panel" hidden>
+    <label class="file-label">
+      <span>Load ONNX model</span>
+      <input type="file" id="model-picker" accept=".onnx" />
+    </label>
+    <span id="model-status" class="model-status">No model loaded</span>
+
+    <div class="speed-control">
+      <label for="ai-speed">Speed:</label>
+      <input type="range" id="ai-speed" min="1" max="60" value="10" />
+      <span id="ai-speed-label">10 tps</span>
+    </div>
+  </div>
+
+  <div class="game-container">
+    <canvas id="game-canvas"></canvas>
+  </div>
+
+  <p class="controls-hint" aria-label="Controls">
+    Arrow keys / WASD to move &middot; Space to start &amp; restart &middot; Esc / P to pause
+  </p>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
