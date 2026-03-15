@@ -11,13 +11,39 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"
     rel="stylesheet"
   />
+  <!-- ONNX Runtime Web (wasm backend) — only used when AI mode is active -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.3/dist/ort.min.js"></script>
 </head>
 <body>
   <h1>Snake</h1>
 
-  <div class="scoreboard">
-    <span>Score: <strong id="score">0</strong></span>
-    <span>Best: <strong id="high-score">0</strong></span>
+  <div class="toolbar">
+    <div class="scoreboard">
+      <span>Score: <strong id="score">0</strong></span>
+      <span>Best: <strong id="high-score">0</strong></span>
+    </div>
+
+    <div class="mode-selector">
+      <label for="mode-toggle">Mode:</label>
+      <select id="mode-toggle">
+        <option value="human" selected>Human</option>
+        <option value="ai">AI (ONNX)</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="ai-panel" class="ai-panel" hidden>
+    <label class="file-label">
+      <span>Load ONNX model</span>
+      <input type="file" id="model-picker" accept=".onnx" />
+    </label>
+    <span id="model-status" class="model-status">No model loaded</span>
+
+    <div class="speed-control">
+      <label for="ai-speed">Speed:</label>
+      <input type="range" id="ai-speed" min="1" max="60" value="10" />
+      <span id="ai-speed-label">10 tps</span>
+    </div>
   </div>
 
   <div class="game-container">

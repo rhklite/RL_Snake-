@@ -1,25 +1,36 @@
 import { Game, STATE } from './game.js';
 import { Renderer } from './renderer.js';
 import { InputHandler } from './input.js';
+import { AIController } from './ai-controller.js';
 import { ParticleSystem } from './particles.js';
 import { COLORS } from './constants.js';
 
-/**
- * Bootstrap — wires Game, Renderer, InputHandler, and ParticleSystem
- * together and runs a variable-timestep game loop.
- */
-const canvas = document.getElementById('game-canvas');
-const scoreEl = document.getElementById('score');
+/* ---- DOM refs ---- */
+const canvas      = document.getElementById('game-canvas');
+const scoreEl     = document.getElementById('score');
 const highScoreEl = document.getElementById('high-score');
+const modeToggle  = document.getElementById('mode-toggle');
+const modelPicker = document.getElementById('model-picker');
+const modelStatus = document.getElementById('model-status');
+const speedSlider = document.getElementById('ai-speed');
+const speedLabel  = document.getElementById('ai-speed-label');
+const aiPanel     = document.getElementById('ai-panel');
 
-const game = new Game();
-const renderer = new Renderer(canvas);
-const input = new InputHandler();
+/* ---- Core objects ---- */
+const game      = new Game();
+const renderer  = new Renderer(canvas);
+const input     = new InputHandler();
 const particles = new ParticleSystem();
+const ai        = new AIController();
 
-game.on('score', (score, highScore) => {
-  scoreEl.textContent = score;
-  highScoreEl.textContent = highScore;
+let mode = 'human';           // 'human' | 'ai'
+let aiTickRate = 10;           // ticks/sec when AI is playing
+let aiPending = false;         // guards against overlapping async inferences
+
+/* ---- Score events ---- */
+game.on('score', (s, hs) => {
+  scoreEl.textContent = s;
+  highScoreEl.textContent = hs;
 });
 
 game.on('eat', (pos) => {
@@ -29,21 +40,24 @@ game.on('eat', (pos) => {
 scoreEl.textContent = game.score;
 highScoreEl.textContent = game.highScore;
 
+/* ---- Human input ---- */
 input.bind({
   onDirection(dir) {
-    if (game.state === STATE.RUNNING) {
+    if (mode === 'human' && game.state === STATE.RUNNING) {
       game.snake.setDirection(dir);
     }
   },
   onAction() {
     if (game.state === STATE.IDLE || game.state === STATE.GAME_OVER) {
       game.start();
-    } else if (game.state === STATE.RUNNING || game.state === STATE.PAUSED) {
+    } else if (mode === 'human' &&
+               (game.state === STATE.RUNNING || game.state === STATE.PAUSED)) {
       game.togglePause();
     }
   },
   onPause() {
-    if (game.state === STATE.RUNNING || game.state === STATE.PAUSED) {
+    if (mode === 'human' &&
+        (game.state === STATE.RUNNING || game.state === STATE.PAUSED)) {
       game.togglePause();
     }
   },
@@ -51,7 +65,45 @@ input.bind({
 
 input.bindTouch(canvas);
 
-let lastTick = 0;
+/* ---- Mode toggle ---- */
+modeToggle.addEventListener('change', () => {
+  setMode(modeToggle.value);
+});
+
+function setMode(newMode) {
+  mode = newMode;
+  modeToggle.value = mode;
+  aiPanel.hidden = (mode !== 'ai');
+
+  if (game.state === STATE.RUNNING || game.state === STATE.PAUSED) {
+    game.state = STATE.GAME_OVER;
+  }
+}
+
+/* ---- Model file picker ---- */
+modelPicker.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  modelStatus.textContent = 'Loading\u2026';
+  try {
+    ai.dispose();
+    await ai.loadModel(file);
+    modelStatus.textContent = `Loaded: ${file.name}`;
+  } catch (err) {
+    modelStatus.textContent = `Error: ${err.message}`;
+    console.error(err);
+  }
+});
+
+/* ---- AI speed slider ---- */
+speedSlider?.addEventListener('input', () => {
+  aiTickRate = Number(speedSlider.value);
+  speedLabel.textContent = `${aiTickRate} tps`;
+});
+
+/* ---- Game loop ---- */
+let lastTick  = 0;
 let lastFrame = 0;
 
 function loop(timestamp) {
@@ -61,9 +113,22 @@ function loop(timestamp) {
   lastFrame = timestamp;
 
   if (game.state === STATE.RUNNING) {
-    if (timestamp - lastTick >= game.tickInterval) {
-      game.tick();
-      lastTick = timestamp;
+    const interval = mode === 'ai' ? 1000 / aiTickRate : game.tickInterval;
+
+    if (timestamp - lastTick >= interval) {
+      if (mode === 'ai' && ai.ready) {
+        if (!aiPending) {
+          aiPending = true;
+          ai.step(game).then(() => {
+            game.tick();
+            aiPending = false;
+          });
+          lastTick = timestamp;
+        }
+      } else if (mode === 'human') {
+        game.tick();
+        lastTick = timestamp;
+      }
     }
   }
 
@@ -79,7 +144,7 @@ function render(timestamp) {
 
   switch (game.state) {
     case STATE.IDLE:
-      renderer.drawOverlay('Snake', 'Press Space to Start');
+      renderer.drawOverlay('Snake', overlayHint());
       break;
     case STATE.PAUSED:
       renderer.drawOverlay('Paused', 'Press Space to Resume');
@@ -87,10 +152,15 @@ function render(timestamp) {
     case STATE.GAME_OVER:
       renderer.drawOverlay(
         'Game Over',
-        `Score: ${game.score}  \u2014  Press Space to Retry`,
+        `Score: ${game.score}  \u2014  ${overlayHint()}`,
       );
       break;
   }
+}
+
+function overlayHint() {
+  if (mode === 'ai' && !ai.ready) return 'Load an ONNX model first';
+  return 'Press Space to Start';
 }
 
 requestAnimationFrame(loop);

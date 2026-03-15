@@ -11,3 +11,13 @@ Thumbs.db
 # Node (if ever added)
 node_modules/
 dist/
+
+# Trained models (large binaries)
+models/*.onnx
+models/*.pt
+models/*.pth
+
+# Python
+__pycache__/
+*.pyc
+.venv/
