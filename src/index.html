@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Snake</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"
+    rel="stylesheet"
+  />
+</head>
+<body>
+  <h1>Snake</h1>
+
+  <div class="scoreboard">
+    <span>Score: <strong id="score">0</strong></span>
+    <span>Best: <strong id="high-score">0</strong></span>
+  </div>
+
+  <div class="game-container">
+    <canvas id="game-canvas"></canvas>
+  </div>
+
+  <p class="controls-hint">
+    Arrow keys / WASD to move &middot; Space / Enter to start &amp; restart
+  </p>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
