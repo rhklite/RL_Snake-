@@ -8,13 +8,15 @@ export class InputHandler {
   constructor() {
     this._directionCallback = null;
     this._actionCallback = null;
+    this._pauseCallback = null;
     this._bound = this._onKeyDown.bind(this);
   }
 
   /** Register callbacks and start listening. */
-  bind({ onDirection, onAction }) {
+  bind({ onDirection, onAction, onPause }) {
     this._directionCallback = onDirection;
     this._actionCallback = onAction;
+    this._pauseCallback = onPause;
     window.addEventListener('keydown', this._bound);
   }
 
@@ -33,6 +35,12 @@ export class InputHandler {
     if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault();
       this._actionCallback?.();
+      return;
+    }
+
+    if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
+      e.preventDefault();
+      this._pauseCallback?.();
     }
   }
 

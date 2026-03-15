@@ -86,7 +86,7 @@ export class Game extends EventEmitter {
       this.snake.grow();
       this.score += POINTS_PER_FOOD;
       this.speed = Math.min(MAX_SPEED, this.speed + SPEED_INCREMENT);
-      this.emit('eat');
+      this.emit('eat', this.food.position);
 
       if (!this.food.spawn(this.snake.occupiedSet)) {
         this._endGame();

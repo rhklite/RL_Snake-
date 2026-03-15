@@ -1,10 +1,12 @@
 import { Game, STATE } from './game.js';
 import { Renderer } from './renderer.js';
 import { InputHandler } from './input.js';
+import { ParticleSystem } from './particles.js';
+import { COLORS } from './constants.js';
 
 /**
- * Bootstrap — wires Game, Renderer, and InputHandler together
- * and runs a variable-timestep game loop via requestAnimationFrame.
+ * Bootstrap — wires Game, Renderer, InputHandler, and ParticleSystem
+ * together and runs a variable-timestep game loop.
  */
 const canvas = document.getElementById('game-canvas');
 const scoreEl = document.getElementById('score');
@@ -13,10 +15,15 @@ const highScoreEl = document.getElementById('high-score');
 const game = new Game();
 const renderer = new Renderer(canvas);
 const input = new InputHandler();
+const particles = new ParticleSystem();
 
 game.on('score', (score, highScore) => {
   scoreEl.textContent = score;
   highScoreEl.textContent = highScore;
+});
+
+game.on('eat', (pos) => {
+  particles.burst(pos.x, pos.y, COLORS.FOOD, 10);
 });
 
 scoreEl.textContent = game.score;
@@ -35,14 +42,23 @@ input.bind({
       game.togglePause();
     }
   },
+  onPause() {
+    if (game.state === STATE.RUNNING || game.state === STATE.PAUSED) {
+      game.togglePause();
+    }
+  },
 });
 
 input.bindTouch(canvas);
 
 let lastTick = 0;
+let lastFrame = 0;
 
 function loop(timestamp) {
   requestAnimationFrame(loop);
+
+  const dt = Math.min((timestamp - lastFrame) / 1000, 0.1);
+  lastFrame = timestamp;
 
   if (game.state === STATE.RUNNING) {
     if (timestamp - lastTick >= game.tickInterval) {
@@ -51,6 +67,7 @@ function loop(timestamp) {
     }
   }
 
+  particles.update(dt);
   render(timestamp);
 }
 
@@ -58,6 +75,7 @@ function render(timestamp) {
   renderer.clear();
   renderer.drawSnake(game.snake);
   renderer.drawFood(game.food, timestamp);
+  particles.draw(renderer.ctx);
   renderer.drawScore(game.score, game.highScore);
 
   switch (game.state) {
