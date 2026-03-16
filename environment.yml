@@ -1,0 +1,17 @@
+name: snake
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - pip:
+    - torch>=2.0.0
+    - torchvision>=0.15.0
+    - torchaudio>=2.0.0
+    - gymnasium>=1.0.0
+    - numpy>=1.24.0
+    - pygame>=2.5.0
+    - PyYAML>=6.0
+    - wandb>=0.16.0
+    - omegaconf>=2.3.0
+    - imageio[ffmpeg]>=2.30.0
+    - rich>=13.0.0

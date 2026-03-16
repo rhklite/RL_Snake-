@@ -1,0 +1,14 @@
+game:
+  rows: 12
+  cols: 12
+
+gui:
+  display_app_name: "Snake Game"
+  cell_size: 50
+  color:
+    snake:
+      body: [128, 189, 38]
+      head: [4, 74, 0]
+    grid: [30, 30, 60, 0]
+    background: [10, 10, 40]
+    next_to_die: [58, 125, 22]

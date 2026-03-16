@@ -1,0 +1,38 @@
+model:
+  arch: cnn          # cnn | mlp
+  obs_type: grid     # grid | features
+  hidden_size: 128   # size of MLP hidden layers (and CNN head FC layer)
+  num_layers: 2      # CNN: number of conv layers; MLP: number of FC layers in shared trunk
+  activation: relu   # relu | tanh | elu
+
+ppo:
+  learning_rate: 2.5e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 16
+  update_epochs: 4
+  clip_coef: 0.2
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+
+training:
+  num_envs: 1024
+  num_steps: 128
+  total_timesteps: 999_999_999 # effectively unlimited; plateau or time limit will stop training
+  seed: 1
+  max_hours: 6.0           # wall-clock time limit; training stops after this many hours
+  plateau_steps: 1_000_000 # window size in env steps for plateau detection
+  plateau_threshold: 0.1   # stop if avg_return range (max-min) stays within this over the window
+  hypothesis_slug: ""      # optional kebab-case slug appended to the run dir name
+
+checkpointing:
+  num_checkpoints: 5
+
+experiments_dir: runs
+
+video:
+  num_videos: 5
+  final_episodes: 3
+  render_cell_size: 60  # 12x12 grid -> 720x720 (720p)
+  fps: 30

@@ -1,0 +1,34 @@
+model:
+  arch: cnn          # cnn | mlp
+  obs_type: grid     # grid | features
+  hidden_size: 128   # size of MLP hidden layers (and CNN head FC layer)
+  num_layers: 2      # CNN: number of conv layers; MLP: number of FC layers in shared trunk
+  activation: relu   # relu | tanh | elu
+
+ppo:
+  learning_rate: 2.5e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  clip_coef: 0.2
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+
+training:
+  num_envs: 512
+  num_steps: 128
+  total_timesteps: 20_000_000
+  seed: 1
+
+checkpointing:
+  num_checkpoints: 5
+
+experiments_dir: runs
+
+video:
+  num_videos: 5
+  final_episodes: 3
+  render_cell_size: 60  # 12x12 grid -> 720x720 (720p)
+  fps: 30

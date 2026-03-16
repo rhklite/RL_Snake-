@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+
+runs/
+wandb/
+
+.env
+*.egg-info/
+host_packages_backup.txt

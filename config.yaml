@@ -1,0 +1,21 @@
+env:
+  grid_rows: 12
+  grid_cols: 12
+
+ppo:
+  lr: 0.002
+  betas: [0.9, 0.999]
+  gamma: 0.99
+  eps_clip: 0.2
+  K_epochs: 4
+  n_latent_var: 64
+  entropy_coef: 0.01
+
+training:
+  num_agents: 2
+  max_timestep: 200
+  update_timestep: 2000
+  max_episode: 50000
+  solved_reward: null
+  log_interval: 100
+  save_interval: 500

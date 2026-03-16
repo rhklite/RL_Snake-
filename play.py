@@ -6,33 +6,36 @@ headless — this script reads the env's grid state and draws it.
 
 from __future__ import annotations
 
+import argparse
 import sys
+from pathlib import Path
 
 import pygame
-import yaml
+from omegaconf import OmegaConf
 
 from snake_env import CELL_BODY, CELL_FOOD, CELL_HEAD, DOWN, LEFT, RIGHT, UP, SnakeEnv
 
-
-def load_settings(path: str = "settings.yaml") -> dict:
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+CONFIG_DIR = Path(__file__).resolve().parent / "config"
 
 
 def main() -> None:
-    settings = load_settings()
-    gui_cfg = settings["gui"]
-    world = gui_cfg["world"]
-    colors = gui_cfg["color"]
+    parser = argparse.ArgumentParser(description="Play Snake")
+    parser.add_argument(
+        "--game", type=str, default="default", help="Game config variant name"
+    )
+    args = parser.parse_args()
 
-    rows = world["rows"]
-    cols = world["columns"]
-    cell_size = world["cell_size"]
+    cfg = OmegaConf.load(CONFIG_DIR / "game" / f"{args.game}.yaml")
 
-    bg_color = tuple(colors["background"][:3])
-    grid_color = tuple(colors["grid"][:3])
-    head_color = tuple(colors["snake"]["head"])
-    body_color = tuple(colors["snake"]["body"])
+    rows = cfg.game.rows
+    cols = cfg.game.cols
+    cell_size = cfg.gui.cell_size
+    colors = cfg.gui.color
+
+    bg_color = tuple(colors.background[:3])
+    grid_color = tuple(colors.grid[:3])
+    head_color = tuple(colors.snake.head)
+    body_color = tuple(colors.snake.body)
     food_color = (213, 50, 80)
 
     env = SnakeEnv(rows=rows, cols=cols, obs_type="grid", render_mode=None)
@@ -42,7 +45,7 @@ def main() -> None:
     screen_w = cols * cell_size
     screen_h = rows * cell_size
     screen = pygame.display.set_mode((screen_w, screen_h))
-    pygame.display.set_caption(gui_cfg.get("display_app_name", "Snake Game"))
+    pygame.display.set_caption(cfg.gui.get("display_app_name", "Snake Game"))
     clock = pygame.time.Clock()
 
     key_map = {
