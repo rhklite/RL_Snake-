@@ -1,0 +1,64 @@
+game:
+  rows: 32
+  cols: 32
+gui:
+  display_app_name: Snake Game
+  cell_size: 50
+  color:
+    snake:
+      body:
+      - 128
+      - 189
+      - 38
+      head:
+      - 4
+      - 74
+      - 0
+    grid:
+    - 30
+    - 30
+    - 60
+    - 0
+    background:
+    - 10
+    - 10
+    - 40
+    next_to_die:
+    - 58
+    - 125
+    - 22
+model:
+  arch: hybrid
+  obs_type: hybrid
+  hidden_size: 128
+  num_layers: 4
+  activation: relu
+ppo:
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  clip_coef: 0.2
+  ent_coef: 0.03
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+training:
+  num_envs: 256
+  num_steps: 128
+  total_timesteps: 999999999
+  seed: 1
+  max_hours: 0
+  plateau_steps: 1000000
+  plateau_threshold: 0.1
+  dist_shaping_alpha: 0.01
+  max_memory_pct: 95
+  hypothesis_slug: bfs-reachability
+checkpointing:
+  num_checkpoints: 5
+experiments_dir: runs
+video:
+  num_videos: 5
+  final_episodes: 3
+  render_cell_size: 60
+  fps: 30

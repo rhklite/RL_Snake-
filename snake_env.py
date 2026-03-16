@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any
 
 import gymnasium as gym
@@ -34,9 +35,10 @@ class SnakeEnv(gym.Env):
     * ``"features"`` – flat float vector: relative food direction (4),
       danger in three look-ahead directions (3), current direction one-hot (4).
     * ``"hybrid"``   – Dict obs with two keys:
-        - ``"grid"``: 3-channel float32 grid ``(3, rows, cols)``:
+        - ``"grid"``: 4-channel float32 grid ``(4, rows, cols)``:
           ch0 = body gradient (tail→head normalized 0→1),
-          ch1 = head location (binary), ch2 = food location (binary).
+          ch1 = head location (binary), ch2 = food location (binary),
+          ch3 = BFS reachability (inverted distance from head, 0=unreachable).
         - ``"food"``: normalized signed food offset ``(Δx/cols, Δy/rows) float32``.
 
     Actions
@@ -84,7 +86,7 @@ class SnakeEnv(gym.Env):
             self.observation_space = spaces.Dict(
                 {
                     "grid": spaces.Box(
-                        low=0.0, high=1.0, shape=(3, rows, cols), dtype=np.float32
+                        low=0.0, high=1.0, shape=(4, rows, cols), dtype=np.float32
                     ),
                     "food": spaces.Box(
                         low=-1.0, high=1.0, shape=(2,), dtype=np.float32
@@ -244,7 +246,7 @@ class SnakeEnv(gym.Env):
         return self._get_hybrid_obs()
 
     def _get_hybrid_obs(self) -> dict[str, np.ndarray]:
-        grid = np.zeros((3, self.rows, self.cols), dtype=np.float32)
+        grid = np.zeros((4, self.rows, self.cols), dtype=np.float32)
         n = len(self._snake)
         for i, seg in enumerate(self._snake):
             x, y = int(seg[0]), int(seg[1])
@@ -255,6 +257,7 @@ class SnakeEnv(gym.Env):
         if 0 <= hx < self.cols and 0 <= hy < self.rows:
             grid[1, hy, hx] = 1.0
         grid[2, int(self._food[1]), int(self._food[0])] = 1.0
+        grid[3] = self._compute_reachability(n, hx, hy)
         food_vec = np.array(
             [
                 (self._food[0] - head[0]) / max(self.cols - 1, 1),
@@ -263,6 +266,45 @@ class SnakeEnv(gym.Env):
             dtype=np.float32,
         )
         return {"grid": grid, "food": food_vec}
+
+    def _compute_reachability(self, n: int, hx: int, hy: int) -> np.ndarray:
+        """BFS reachability from head with forward-looking body clearance.
+
+        Body segments are passable if they will have cleared by the BFS arrival
+        time (segment at index i clears in n-i steps). Returns an inverted
+        distance map: 1.0 at the head, decreasing for farther cells, 0.0 for
+        unreachable cells.
+        """
+        rows, cols = self.rows, self.cols
+        max_possible = rows * cols
+
+        body_clearance = np.zeros((rows, cols), dtype=np.int32)
+        for i, seg in enumerate(self._snake):
+            sx, sy = int(seg[0]), int(seg[1])
+            if 0 <= sx < cols and 0 <= sy < rows:
+                body_clearance[sy, sx] = n - i
+
+        distance = np.full((rows, cols), -1, dtype=np.int32)
+        if 0 <= hx < cols and 0 <= hy < rows:
+            distance[hy, hx] = 0
+
+        queue: deque[tuple[int, int]] = deque()
+        queue.append((hy, hx))
+
+        while queue:
+            cy, cx = queue.popleft()
+            d = distance[cy, cx] + 1
+            for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                ny, nx = cy + dy, cx + dx
+                if 0 <= ny < rows and 0 <= nx < cols and distance[ny, nx] == -1:
+                    if body_clearance[ny, nx] <= d:
+                        distance[ny, nx] = d
+                        queue.append((ny, nx))
+
+        reachability = np.zeros((rows, cols), dtype=np.float32)
+        mask = distance >= 0
+        reachability[mask] = 1.0 - distance[mask].astype(np.float32) / max_possible
+        return reachability
 
     def _get_feature_obs(self) -> np.ndarray:
         head = self._snake[0]
