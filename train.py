@@ -423,7 +423,7 @@ def main() -> None:
         for update in range(1, num_updates + 1):
             # --- Early stopping: time limit ---
             elapsed_hours = (time.monotonic() - train_start) / 3600
-            if elapsed_hours >= cfg.training.max_hours:
+            if cfg.training.max_hours > 0 and elapsed_hours >= cfg.training.max_hours:
                 print(
                     f"Stopping: time limit reached ({elapsed_hours:.2f}h >= {cfg.training.max_hours}h)"
                 )
