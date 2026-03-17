@@ -27,6 +27,29 @@ CONFIG_DIR = Path(__file__).resolve().parent / "config"
 _SELF_PROCESS = psutil.Process(os.getpid())
 
 
+def _process_footprint_gb(pid: int) -> float:
+    """Return process memory footprint in GB using macOS ``footprint`` tool.
+
+    Includes MPS/GPU unified memory. Falls back to psutil RSS if the
+    ``footprint`` command is unavailable or fails.
+    """
+    try:
+        out = subprocess.check_output(
+            ["footprint", "-p", str(pid), "--skip-duplicate"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        for line in out.splitlines():
+            if "Footprint:" in line:
+                for token in line.split():
+                    if token.replace(".", "", 1).isdigit():
+                        mb = float(token)
+                        return mb / 1024
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+    return psutil.Process(pid).memory_info().rss / 1e9
+
+
 class _Tee:
     """Mirror writes to both a stream and a log file."""
 
@@ -118,12 +141,12 @@ def _ensure_clean_git(cfg: DictConfig) -> str:
             )
             subprocess.run(["git", "commit", "-m", msg], check=True)
         else:
-            print("WARNING: Running with uncommitted changes. Reproducibility not guaranteed.")
+            print(
+                "WARNING: Running with uncommitted changes. Reproducibility not guaranteed."
+            )
 
     try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], text=True
-        ).strip()
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     except subprocess.CalledProcessError:
         return "unknown"
 
@@ -438,12 +461,12 @@ def main() -> None:
             sys_mem = psutil.virtual_memory()
             sys_mem_pct = sys_mem.percent
             sys_used_gb = sys_mem.used / 1e9
-            rss_gb = _SELF_PROCESS.memory_info().rss / 1e9
+            proc_gb = _process_footprint_gb(os.getpid())
             if sys_mem_pct >= max_memory_pct:
                 print(
                     f"Stopping: system memory limit reached "
                     f"({sys_mem_pct:.1f}% >= {max_memory_pct}% | "
-                    f"used {sys_used_gb:.1f}GB, process RSS {rss_gb:.1f}GB)"
+                    f"used {sys_used_gb:.1f}GB, process {proc_gb:.1f}GB)"
                 )
                 _log_metrics(
                     {"stop_reason": "memory_limit", "sys_mem_pct": sys_mem_pct},

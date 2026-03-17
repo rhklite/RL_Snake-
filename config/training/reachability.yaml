@@ -44,7 +44,7 @@ ppo:
   vf_coef: 0.5
   max_grad_norm: 0.5
 training:
-  num_envs: 256
+  num_envs: 1024
   num_steps: 128
   total_timesteps: 999999999
   seed: 1

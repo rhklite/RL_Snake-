@@ -7,10 +7,12 @@ Usage:
 If --total is not given, it reads num_updates from the config.yaml in the
 same run directory.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -44,9 +46,30 @@ def _read_pid(pid_file: Path | None) -> int | None:
         return None
 
 
+def _process_footprint_gb(pid: int) -> float:
+    """Return process memory footprint in GB using macOS ``footprint`` tool.
+
+    Includes MPS/GPU unified memory. Falls back to psutil RSS if the
+    ``footprint`` command is unavailable or fails.
+    """
+    try:
+        out = subprocess.check_output(
+            ["footprint", "-p", str(pid), "--skip-duplicate"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        for line in out.splitlines():
+            if "Footprint:" in line:
+                for token in line.split():
+                    if token.replace(".", "", 1).isdigit():
+                        return float(token) / 1024
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+    return psutil.Process(pid).memory_info().rss / 1e9
+
+
 def _mem_info(train_pid: int | None) -> str:
     vm = psutil.virtual_memory()
-    total_gb = vm.total / 1e9
     used_gb = vm.used / 1e9
     free_gb = vm.available / 1e9
     used_pct = vm.percent
@@ -55,10 +78,9 @@ def _mem_info(train_pid: int | None) -> str:
     train_str = "-"
     if train_pid:
         try:
-            proc = psutil.Process(train_pid)
-            rss_gb = proc.memory_info().rss / 1e9
-            rss_pct = 100.0 * proc.memory_info().rss / vm.total
-            train_str = f"{rss_gb:.1f}G({rss_pct:.0f}%)"
+            proc_gb = _process_footprint_gb(train_pid)
+            proc_pct = 100.0 * proc_gb / (vm.total / 1e9)
+            train_str = f"{proc_gb:.1f}G({proc_pct:.0f}%)"
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             train_str = "dead"
 
@@ -95,7 +117,10 @@ def main() -> None:
         "--interval", type=float, default=2.0, help="Poll interval in seconds"
     )
     parser.add_argument(
-        "--pid-file", type=Path, default=None, help="Path to PID file for training process"
+        "--pid-file",
+        type=Path,
+        default=None,
+        help="Path to PID file for training process",
     )
     args = parser.parse_args()
 
