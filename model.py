@@ -184,12 +184,10 @@ class HybridActorCritic(nn.Module):
         num_layers: int = 4,
         activation: str = "relu",
         feat_hidden: int = 64,
-        in_channels: int = 4,
-        bottleneck_channels: int = 4,
     ) -> None:
         super().__init__()
 
-        channels = [in_channels] + [min(16 * (2**i), 128) for i in range(num_layers)]
+        channels = [4] + [min(16 * (2**i), 128) for i in range(num_layers)]
         conv_layers: list[nn.Module] = []
         for i in range(num_layers):
             conv_layers.append(
@@ -198,15 +196,13 @@ class HybridActorCritic(nn.Module):
                 )
             )
             conv_layers.append(_get_activation(activation))
-        conv_layers.append(
-            layer_init(nn.Conv2d(channels[-1], bottleneck_channels, kernel_size=1))
-        )
-        conv_layers.append(_get_activation(activation))
+            if i < num_layers - 1:
+                conv_layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
         conv_layers.append(nn.Flatten())
         self.cnn_encoder = nn.Sequential(*conv_layers)
 
         with torch.no_grad():
-            dummy = torch.zeros(1, in_channels, rows, cols)
+            dummy = torch.zeros(1, 4, rows, cols)
             flat_cnn = self.cnn_encoder(dummy).shape[1]
 
         self.cnn_proj = nn.Sequential(
