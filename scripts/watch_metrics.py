@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Watch a metrics.jsonl file and print a live-updating progress table.
+"""Watch a metrics.jsonl file and print one-line-per-update stats.
 
 Usage:
-    python3 scripts/watch_metrics.py <path/to/metrics.jsonl> [--total N]
+    python3 scripts/watch_metrics.py <path/to/metrics.jsonl> [--total N] [--pid-file PATH]
 
 If --total is not given, it reads num_updates from the config.yaml in the
 same run directory.
@@ -11,15 +11,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
-from rich.columns import Columns
-from rich.console import Console
-from rich.live import Live
-from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
-from rich.table import Table
-from rich.text import Text
+import psutil
 
 
 def _load_total(metrics_path: Path, override: int | None) -> int | None:
@@ -38,93 +35,106 @@ def _load_total(metrics_path: Path, override: int | None) -> int | None:
     return None
 
 
-def _read_latest(path: Path) -> list[dict]:
-    rows = []
+def _read_pid(pid_file: Path | None) -> int | None:
+    if pid_file is None:
+        return None
     try:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    rows.append(json.loads(line))
-    except FileNotFoundError:
-        pass
-    return rows
+        return int(pid_file.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return None
 
 
-def _build_table(rows: list[dict]) -> Table:
-    table = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 1))
-    table.add_column("Update", justify="right", style="dim")
-    table.add_column("Avg Return", justify="right", style="green")
-    table.add_column("Avg Length", justify="right")
-    table.add_column("Snake Size", justify="right", style="magenta")
-    table.add_column("Policy Loss", justify="right", style="yellow")
-    table.add_column("Value Loss", justify="right", style="yellow")
-    table.add_column("Entropy", justify="right")
-    table.add_column("SPS", justify="right", style="dim")
+def _mem_info(train_pid: int | None) -> str:
+    vm = psutil.virtual_memory()
+    total_gb = vm.total / 1e9
+    used_gb = vm.used / 1e9
+    free_gb = vm.available / 1e9
+    used_pct = vm.percent
+    free_pct = 100.0 - used_pct
 
-    display = rows[-30:]
-    for r in display:
-        table.add_row(
-            str(r.get("update", "?")),
-            f"{r['avg_return']:.2f}" if "avg_return" in r else "-",
-            f"{r['avg_length']:.1f}" if "avg_length" in r else "-",
-            f"{r['avg_snake_length']:.1f}" if "avg_snake_length" in r else "-",
-            f"{r['policy_loss']:.4f}" if "policy_loss" in r else "-",
-            f"{r['value_loss']:.4f}" if "value_loss" in r else "-",
-            f"{r['entropy']:.4f}" if "entropy" in r else "-",
-            str(r.get("sps", "-")),
-        )
-    return table
+    train_str = "-"
+    if train_pid:
+        try:
+            proc = psutil.Process(train_pid)
+            rss_gb = proc.memory_info().rss / 1e9
+            rss_pct = 100.0 * proc.memory_info().rss / vm.total
+            train_str = f"{rss_gb:.1f}G({rss_pct:.0f}%)"
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            train_str = "dead"
+
+    return (
+        f"Mem: train={train_str} "
+        f"sys={used_gb:.1f}G({used_pct:.0f}%) "
+        f"free={free_gb:.1f}G({free_pct:.0f}%)"
+    )
+
+
+def _format_line(r: dict, update: int, total: int | None, train_pid: int | None) -> str:
+    pct = f"{100.0 * update / total:.1f}" if total else "?"
+    ret = f"{r['avg_return']:.2f}" if "avg_return" in r else "-"
+    length = f"{r['avg_length']:.1f}" if "avg_length" in r else "-"
+    snake = f"{r['avg_snake_length']:.1f}" if "avg_snake_length" in r else "-"
+    sps = str(r.get("sps", "-"))
+    ts = datetime.now().strftime("%d %H:%M")
+    total_str = str(total) if total else "?"
+    mem = _mem_info(train_pid)
+    return (
+        f"[{pct}%] {update}/{total_str} | "
+        f"Return: {ret} | Length: {length} | Snake: {snake} | "
+        f"SPS: {sps} | {mem} | {ts}"
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Watch a metrics.jsonl file live")
     parser.add_argument("metrics", type=Path, help="Path to metrics.jsonl")
-    parser.add_argument("--total", type=int, default=None, help="Total number of updates")
-    parser.add_argument("--interval", type=float, default=2.0, help="Refresh interval in seconds")
+    parser.add_argument(
+        "--total", type=int, default=None, help="Total number of updates"
+    )
+    parser.add_argument(
+        "--interval", type=float, default=2.0, help="Poll interval in seconds"
+    )
+    parser.add_argument(
+        "--pid-file", type=Path, default=None, help="Path to PID file for training process"
+    )
     args = parser.parse_args()
 
     total = _load_total(args.metrics, args.total)
-    console = Console()
+    pid_file = args.pid_file
+    if pid_file is None:
+        pid_file = args.metrics.parent.parent / ".active_training_pid"
+    lines_seen = 0
 
-    progress = Progress(
-        TextColumn("[bold blue]Training"),
-        BarColumn(bar_width=40),
-        TaskProgressColumn(),
-        TextColumn("{task.description}"),
-        console=console,
-    )
-    task = progress.add_task("", total=total or 100)
+    print(f"Watching {args.metrics}  (Ctrl+C to stop)\n", flush=True)
 
-    with Live(console=console, refresh_per_second=4) as live:
-        while True:
-            rows = _read_latest(args.metrics)
-            last = rows[-1] if rows else {}
-            update = last.get("update", 0)
+    while True:
+        train_pid = _read_pid(pid_file)
 
-            if total:
-                pct = update / total
-                desc = (
-                    f"[dim]Update {update}/{total} | "
-                    f"Return {last.get('avg_return', 'N/A')}"
-                    if "avg_return" in last
-                    else f"[dim]Update {update}/{total}"
-                )
-                progress.update(task, completed=update, description=desc)
+        try:
+            with open(args.metrics, encoding="utf-8") as f:
+                all_lines = f.readlines()
+        except FileNotFoundError:
+            time.sleep(args.interval)
+            continue
 
-            table = _build_table(rows)
-            header = Text(f"  {args.metrics}", style="bold")
-
-            from rich.panel import Panel
-
-            panel = Panel(table, title=str(args.metrics.parent.name), border_style="dim")
-            live.update(Columns([progress, "\n", panel]) if total else panel)
+        new_lines = all_lines[lines_seen:]
+        for raw in new_lines:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                r = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            lines_seen += 1
+            update = lines_seen
+            print(_format_line(r, update, total, train_pid), flush=True)
 
             if total and update >= total:
-                console.print("[bold green]Training complete.[/bold green]")
-                break
+                print("\nTraining complete.", flush=True)
+                sys.exit(0)
 
-            time.sleep(args.interval)
+        time.sleep(args.interval)
 
 
 if __name__ == "__main__":

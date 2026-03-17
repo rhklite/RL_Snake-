@@ -2,12 +2,58 @@
 
 from __future__ import annotations
 
-from collections import deque
 from typing import Any
 
 import gymnasium as gym
+import numba as nb
 import numpy as np
 from gymnasium import spaces
+
+
+@nb.njit(cache=True)
+def _bfs_reachability(
+    body_clearance: np.ndarray,
+    distance: np.ndarray,
+    hy: int,
+    hx: int,
+    rows: int,
+    cols: int,
+) -> None:
+    """Numba-compiled BFS with forward-looking body clearance.
+
+    Modifies ``distance`` in-place. Uses a pre-allocated numpy ring buffer
+    as the BFS queue since Numba cannot handle Python deque.
+    """
+    max_q = rows * cols
+    queue_y = np.empty(max_q, dtype=np.int32)
+    queue_x = np.empty(max_q, dtype=np.int32)
+    head_ptr = 0
+    tail_ptr = 0
+
+    if 0 <= hy < rows and 0 <= hx < cols:
+        distance[hy, hx] = 0
+        queue_y[tail_ptr] = hy
+        queue_x[tail_ptr] = hx
+        tail_ptr += 1
+
+    dy = np.array([-1, 1, 0, 0], dtype=np.int32)
+    dx = np.array([0, 0, -1, 1], dtype=np.int32)
+
+    while head_ptr < tail_ptr:
+        cy = queue_y[head_ptr]
+        cx = queue_x[head_ptr]
+        head_ptr += 1
+        d = distance[cy, cx] + 1
+        for k in range(4):
+            ny = cy + dy[k]
+            nx = cx + dx[k]
+            if 0 <= ny < rows and 0 <= nx < cols and distance[ny, nx] == -1:
+                if body_clearance[ny, nx] <= d:
+                    distance[ny, nx] = d
+                    queue_y[tail_ptr] = ny
+                    queue_x[tail_ptr] = nx
+                    tail_ptr += 1
+
 
 UP, DOWN, LEFT, RIGHT = 0, 1, 2, 3
 
@@ -270,10 +316,8 @@ class SnakeEnv(gym.Env):
     def _compute_reachability(self, n: int, hx: int, hy: int) -> np.ndarray:
         """BFS reachability from head with forward-looking body clearance.
 
-        Body segments are passable if they will have cleared by the BFS arrival
-        time (segment at index i clears in n-i steps). Returns an inverted
-        distance map: 1.0 at the head, decreasing for farther cells, 0.0 for
-        unreachable cells.
+        Delegates to a Numba-compiled BFS. Returns an inverted distance map:
+        1.0 at the head, decreasing for farther cells, 0.0 for unreachable.
         """
         rows, cols = self.rows, self.cols
         max_possible = rows * cols
@@ -285,21 +329,7 @@ class SnakeEnv(gym.Env):
                 body_clearance[sy, sx] = n - i
 
         distance = np.full((rows, cols), -1, dtype=np.int32)
-        if 0 <= hx < cols and 0 <= hy < rows:
-            distance[hy, hx] = 0
-
-        queue: deque[tuple[int, int]] = deque()
-        queue.append((hy, hx))
-
-        while queue:
-            cy, cx = queue.popleft()
-            d = distance[cy, cx] + 1
-            for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                ny, nx = cy + dy, cx + dx
-                if 0 <= ny < rows and 0 <= nx < cols and distance[ny, nx] == -1:
-                    if body_clearance[ny, nx] <= d:
-                        distance[ny, nx] = d
-                        queue.append((ny, nx))
+        _bfs_reachability(body_clearance, distance, hy, hx, rows, cols)
 
         reachability = np.zeros((rows, cols), dtype=np.float32)
         mask = distance >= 0
