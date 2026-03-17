@@ -316,11 +316,11 @@ class SnakeEnv(gym.Env):
     def _compute_reachability(self, n: int, hx: int, hy: int) -> np.ndarray:
         """BFS reachability from head with forward-looking body clearance.
 
-        Delegates to a Numba-compiled BFS. Returns an inverted distance map:
-        1.0 at the head, decreasing for farther cells, 0.0 for unreachable.
+        Delegates to a Numba-compiled BFS. Returns an inverted distance map
+        normalized by the max distance observed this step so the gradient
+        always spans 0.0 (farthest reachable / unreachable) to 1.0 (head).
         """
         rows, cols = self.rows, self.cols
-        max_possible = rows * cols
 
         body_clearance = np.zeros((rows, cols), dtype=np.int32)
         for i, seg in enumerate(self._snake):
@@ -333,7 +333,10 @@ class SnakeEnv(gym.Env):
 
         reachability = np.zeros((rows, cols), dtype=np.float32)
         mask = distance >= 0
-        reachability[mask] = 1.0 - distance[mask].astype(np.float32) / max_possible
+        max_dist = distance[mask].max() if mask.any() else 1
+        if max_dist == 0:
+            max_dist = 1
+        reachability[mask] = 1.0 - distance[mask].astype(np.float32) / max_dist
         return reachability
 
     def _get_feature_obs(self) -> np.ndarray:
