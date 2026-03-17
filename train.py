@@ -35,7 +35,7 @@ def _process_footprint_gb(pid: int) -> float:
     """
     try:
         out = subprocess.check_output(
-            ["footprint", "-p", str(pid), "--skip-duplicate"],
+            ["footprint", str(pid)],
             stderr=subprocess.DEVNULL,
             text=True,
         )
@@ -43,8 +43,10 @@ def _process_footprint_gb(pid: int) -> float:
             if "Footprint:" in line:
                 for token in line.split():
                     if token.replace(".", "", 1).isdigit():
-                        mb = float(token)
-                        return mb / 1024
+                        val = float(token)
+                        if "GB" in line:
+                            return val
+                        return val / 1024
     except (FileNotFoundError, subprocess.CalledProcessError):
         pass
     return psutil.Process(pid).memory_info().rss / 1e9
