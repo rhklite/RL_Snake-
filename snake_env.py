@@ -303,7 +303,8 @@ class SnakeEnv(gym.Env):
         if 0 <= hx < self.cols and 0 <= hy < self.rows:
             grid[1, hy, hx] = 1.0
         grid[2, int(self._food[1]), int(self._food[0])] = 1.0
-        grid[3] = self._compute_reachability(n, hx, hy)
+        scale = max(n - 1, 0) / max(self.rows * self.cols - 1, 1)
+        grid[3] = self._compute_reachability(n, hx, hy) * scale
         food_vec = np.array(
             [
                 (self._food[0] - head[0]) / max(self.cols - 1, 1),
