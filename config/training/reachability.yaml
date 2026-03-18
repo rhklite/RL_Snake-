@@ -46,7 +46,7 @@ ppo:
 training:
   num_envs: 1024
   num_steps: 128
-  total_timesteps: 999999999
+  num_updates: 0
   seed: 1
   max_hours: 0
   plateau_steps: 1000000

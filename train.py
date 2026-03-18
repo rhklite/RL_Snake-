@@ -72,8 +72,11 @@ class _Tee:
         return self._stream.fileno()
 
 
-def parse_args() -> tuple[DictConfig, bool]:
-    """Load game + training YAML configs, merge CLI overrides, return (cfg, track)."""
+def parse_args() -> tuple[DictConfig, bool, Path | None]:
+    """Load game + training YAML configs, merge CLI overrides.
+
+    Returns (cfg, track, resume_dir).
+    """
     parser = argparse.ArgumentParser(description="PPO Snake Training")
     parser.add_argument(
         "--game", type=str, default="default", help="Game config variant name"
@@ -82,15 +85,53 @@ def parse_args() -> tuple[DictConfig, bool]:
         "--training", type=str, default="default", help="Training config variant name"
     )
     parser.add_argument("--track", action="store_true", help="Enable W&B logging")
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to an existing run directory to resume training from",
+    )
     args, overrides = parser.parse_known_args()
 
-    game_cfg = OmegaConf.load(CONFIG_DIR / "game" / f"{args.game}.yaml")
-    train_cfg = OmegaConf.load(CONFIG_DIR / "training" / f"{args.training}.yaml")
-    cfg = OmegaConf.merge(game_cfg, train_cfg)
+    resume_dir: Path | None = None
+    if args.resume:
+        resume_dir = Path(args.resume)
+        cfg = OmegaConf.load(resume_dir / "config.yaml")
+    else:
+        game_cfg = OmegaConf.load(CONFIG_DIR / "game" / f"{args.game}.yaml")
+        train_cfg = OmegaConf.load(CONFIG_DIR / "training" / f"{args.training}.yaml")
+        cfg = OmegaConf.merge(game_cfg, train_cfg)
+
     if overrides:
         cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(overrides))
 
-    return cfg, args.track
+    return cfg, args.track, resume_dir
+
+
+def _find_latest_checkpoint(ckpt_dir: Path) -> Path | None:
+    """Return the best checkpoint to resume from inside ckpt_dir.
+
+    Priority: agent_final.pt > highest agent_N.pt > best.pt.
+    """
+    final = ckpt_dir / "agent_final.pt"
+    if final.exists():
+        return final
+
+    numbered = sorted(
+        ckpt_dir.glob("agent_*.pt"),
+        key=lambda p: (
+            int(p.stem.split("_")[1]) if p.stem.split("_")[1].isdigit() else -1
+        ),
+    )
+    numbered = [p for p in numbered if p.stem.split("_")[1].isdigit()]
+    if numbered:
+        return numbered[-1]
+
+    best = ckpt_dir / "best.pt"
+    if best.exists():
+        return best
+
+    return None
 
 
 def make_env(rank: int, cfg: DictConfig) -> callable:
@@ -223,6 +264,7 @@ def _draw_overlay(
     step_count: int,
     snake_length: int,
     cause_of_death: str | None,
+    update: int | None = None,
 ) -> np.ndarray:
     """Draw a HUD overlay in the bottom-right ~1/3 of the frame."""
     from PIL import Image, ImageDraw, ImageFont
@@ -241,7 +283,10 @@ def _draw_overlay(
     except Exception:
         font = ImageFont.load_default()
 
-    lines = [
+    lines: list[str] = []
+    if update is not None:
+        lines.append(f"Update: {update}")
+    lines += [
         f"Length: {snake_length}",
         f"Return: {cumulative_reward:.2f}",
         f"Steps:  {step_count}",
@@ -268,6 +313,7 @@ def _record_episode(
     cfg: DictConfig,
     device: torch.device,
     video_path: Path,
+    update: int | None = None,
 ) -> None:
     """Run one episode with the current policy and save as mp4 with HUD overlay."""
     target_px = 720
@@ -291,7 +337,12 @@ def _record_episode(
     with imageio.get_writer(str(video_path), fps=cfg.video.fps) as writer:
         writer.append_data(
             _draw_overlay(
-                env.render(), cumulative_reward, step_count, len(env.snake), None
+                env.render(),
+                cumulative_reward,
+                step_count,
+                len(env.snake),
+                None,
+                update=update,
             )
         )
         while not done:
@@ -319,12 +370,13 @@ def _record_episode(
                     step_count,
                     len(env.snake),
                     cause_of_death if done else None,
+                    update=update,
                 )
             )
 
 
 def main() -> None:
-    cfg, track = parse_args()
+    cfg, track, resume_dir = parse_args()
 
     if cfg.model.arch == "cnn" and cfg.model.obs_type != "grid":
         raise ValueError("CNN architecture requires obs_type='grid'")
@@ -333,15 +385,20 @@ def main() -> None:
     if cfg.model.num_layers < 1:
         raise ValueError("num_layers must be >= 1")
 
-    git_commit = _ensure_clean_git(cfg)
-    cfg = OmegaConf.merge(cfg, {"git": {"commit": git_commit}})
+    if not resume_dir:
+        git_commit = _ensure_clean_git(cfg)
+        cfg = OmegaConf.merge(cfg, {"git": {"commit": git_commit}})
 
     config_dict = OmegaConf.to_container(cfg, resolve=True)
     print("--- Config ---")
     print(OmegaConf.to_yaml(cfg))
     print("--------------")
 
-    exp_dir = _setup_experiment_dir(cfg)
+    if resume_dir:
+        exp_dir = resume_dir
+        print(f"Resuming from: {exp_dir}")
+    else:
+        exp_dir = _setup_experiment_dir(cfg)
     log_file = open(exp_dir / "train.log", "a", encoding="utf-8")
     sys.stdout = _Tee(sys.__stdout__, log_file)
     sys.stderr = _Tee(sys.__stderr__, log_file)
@@ -379,7 +436,31 @@ def main() -> None:
         num_steps = cfg.training.num_steps
         batch_size = num_envs * num_steps
         minibatch_size = batch_size // cfg.ppo.num_minibatches
-        num_updates = cfg.training.total_timesteps // batch_size
+        num_updates = cfg.training.get("num_updates", None)
+        if num_updates is None:
+            num_updates = cfg.training.total_timesteps // batch_size
+        unlimited = num_updates == 0
+
+        start_update = 0
+        best_avg_return = -float("inf")
+        if resume_dir:
+            ckpt_path = _find_latest_checkpoint(exp_dir / "checkpoints")
+            if ckpt_path is None:
+                raise FileNotFoundError(
+                    f"No checkpoint found in {exp_dir / 'checkpoints'}"
+                )
+            ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+            if isinstance(ckpt, dict) and "agent" in ckpt:
+                agent.load_state_dict(ckpt["agent"])
+                optimizer.load_state_dict(ckpt["optimizer"])
+                start_update = ckpt.get("update", 0)
+                best_avg_return = ckpt.get("best_avg_return", -float("inf"))
+            else:
+                agent.load_state_dict(ckpt)
+            print(
+                f"Resumed from {ckpt_path.name} at update {start_update} "
+                f"(best_avg_return={best_avg_return:.2f})"
+            )
 
         is_hybrid = cfg.model.obs_type == "hybrid"
 
@@ -431,21 +512,27 @@ def main() -> None:
         death_counts: dict[str, int] = {"wall": 0, "body": 0, "timeout": 0}
         start_time = time.time()
         train_start = time.monotonic()
-        best_avg_return = -float("inf")
         return_history: list[tuple[int, float]] = []
 
         max_memory_pct = cfg.training.get("max_memory_pct", 95.0)
 
-        ckpt_milestones = {
-            round(num_updates * i / cfg.checkpointing.num_checkpoints)
-            for i in range(1, cfg.checkpointing.num_checkpoints + 1)
-        }
-        video_milestones = {
-            round(num_updates * i / cfg.video.num_videos)
-            for i in range(1, cfg.video.num_videos + 1)
-        }
+        if not unlimited:
+            ckpt_milestones = {
+                round(num_updates * i / cfg.checkpointing.num_checkpoints)
+                for i in range(1, cfg.checkpointing.num_checkpoints + 1)
+            }
+            video_milestones = {
+                round(num_updates * i / cfg.video.num_videos)
+                for i in range(1, cfg.video.num_videos + 1)
+            }
 
-        for update in range(1, num_updates + 1):
+        ckpt_interval = cfg.checkpointing.get("interval", 500)
+        video_interval = cfg.video.get("interval", 1000)
+        update = start_update
+        while True:
+            update += 1
+            if not unlimited and update > num_updates:
+                break
             # --- Early stopping: time limit ---
             elapsed_hours = (time.monotonic() - train_start) / 3600
             if cfg.training.max_hours > 0 and elapsed_hours >= cfg.training.max_hours:
@@ -640,9 +727,13 @@ def main() -> None:
                 metrics["avg_return"] = float(np.mean(episode_returns[-recent_n:]))
                 metrics["avg_length"] = float(np.mean(episode_lengths[-recent_n:]))
                 metrics["avg_snake_length"] = float(np.mean(snake_sizes[-recent_n:]))
-                pct = 100.0 * update / num_updates
+                if unlimited:
+                    prefix = f"Update {update}"
+                else:
+                    pct = 100.0 * update / num_updates
+                    prefix = f"[{pct:.1f}%] Update {update}/{num_updates}"
                 print(
-                    f"[{pct:.1f}%] Update {update}/{num_updates} | "
+                    f"{prefix} | "
                     f"Avg Return: {metrics['avg_return']:.2f} | "
                     f"Avg Length: {metrics['avg_length']:.1f} | "
                     f"Avg Snake Size: {metrics['avg_snake_length']:.1f} | "
@@ -668,9 +759,17 @@ def main() -> None:
                 if avg_return > best_avg_return:
                     best_avg_return = avg_return
                     best_ckpt = exp_dir / "checkpoints" / "best.pt"
-                    torch.save(agent.state_dict(), best_ckpt)
+                    torch.save(
+                        {
+                            "agent": agent.state_dict(),
+                            "optimizer": optimizer.state_dict(),
+                            "update": update,
+                            "best_avg_return": best_avg_return,
+                        },
+                        best_ckpt,
+                    )
                     best_vid = exp_dir / "videos" / "best.mp4"
-                    _record_episode(agent, cfg, device, best_vid)
+                    _record_episode(agent, cfg, device, best_vid, update=update)
                     print(
                         f"  New best return {best_avg_return:.2f} -> "
                         f"saved {best_ckpt} and {best_vid}"
@@ -714,25 +813,51 @@ def main() -> None:
                         )
                         break
 
-            # --- Checkpoint + Video (percentage milestones) ---
-            if update in ckpt_milestones:
+            # --- Checkpoint + Video milestones ---
+            save_ckpt = (
+                (update % ckpt_interval == 0)
+                if unlimited
+                else (update in ckpt_milestones)
+            )
+            if save_ckpt:
                 ckpt_path = exp_dir / "checkpoints" / f"agent_{update}.pt"
-                torch.save(agent.state_dict(), ckpt_path)
+                torch.save(
+                    {
+                        "agent": agent.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "update": update,
+                        "best_avg_return": best_avg_return,
+                    },
+                    ckpt_path,
+                )
                 print(f"  Saved checkpoint: {ckpt_path}")
 
-            if update in video_milestones:
+            save_video = (
+                (update % video_interval == 0)
+                if unlimited
+                else (update in video_milestones)
+            )
+            if save_video:
                 vid_path = exp_dir / "videos" / f"update_{update:05d}.mp4"
-                _record_episode(agent, cfg, device, vid_path)
+                _record_episode(agent, cfg, device, vid_path, update=update)
                 print(f"  Recorded video: {vid_path}")
 
         # --- Final saves ---
         final_ckpt = exp_dir / "checkpoints" / "agent_final.pt"
-        torch.save(agent.state_dict(), final_ckpt)
+        torch.save(
+            {
+                "agent": agent.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "update": update,
+                "best_avg_return": best_avg_return,
+            },
+            final_ckpt,
+        )
         print(f"Training complete. Final model saved to {final_ckpt}")
 
         for ep_idx in range(cfg.video.final_episodes):
             vid_path = exp_dir / "videos" / f"final_{ep_idx}.mp4"
-            _record_episode(agent, cfg, device, vid_path)
+            _record_episode(agent, cfg, device, vid_path, update=update)
             if track:
                 import wandb
 

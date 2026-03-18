@@ -22,6 +22,7 @@ import psutil
 
 
 def _load_total(metrics_path: Path, override: int | None) -> int | None:
+    """Return total num_updates, or None for unlimited / unknown."""
     if override:
         return override
     config = metrics_path.parent / "config.yaml"
@@ -30,6 +31,9 @@ def _load_total(metrics_path: Path, override: int | None) -> int | None:
             from omegaconf import OmegaConf
 
             cfg = OmegaConf.load(config)
+            num_updates = cfg.training.get("num_updates", None)
+            if num_updates is not None:
+                return num_updates if num_updates > 0 else None
             batch = cfg.training.num_envs * cfg.training.num_steps
             return cfg.training.total_timesteps // batch
         except Exception:
