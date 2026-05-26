@@ -797,7 +797,7 @@ def main() -> None:
                     for s, r in return_history
                     if global_step - s <= plateau_steps
                 ]
-                if global_step >= plateau_steps:
+                if global_step >= plateau_steps and len(return_history) >= 10:
                     returns_in_window = [r for _, r in return_history]
                     r_range = max(returns_in_window) - min(returns_in_window)
                     if r_range <= cfg.training.plateau_threshold:
