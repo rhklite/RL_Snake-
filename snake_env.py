@@ -297,13 +297,13 @@ class SnakeEnv(gym.Env):
         for i, seg in enumerate(self._snake):
             x, y = int(seg[0]), int(seg[1])
             if 0 <= x < self.cols and 0 <= y < self.rows:
-                grid[0, y, x] = (n - i) / n
+                grid[0, y, x] = 0.1 + 0.9 * (n - 1 - i) / max(n - 1, 1)
         head = self._snake[0]
         hx, hy = int(head[0]), int(head[1])
         if 0 <= hx < self.cols and 0 <= hy < self.rows:
             grid[1, hy, hx] = 1.0
         grid[2, int(self._food[1]), int(self._food[0])] = 1.0
-        scale = max(n - 1, 0) / max(self.rows * self.cols - 1, 1)
+        scale = min(1.0, max(n - 1, 0) / 50)
         grid[3] = self._compute_reachability(n, hx, hy) * scale
         food_vec = np.array(
             [
