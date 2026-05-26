@@ -27,7 +27,7 @@ def run(rows: int, cols: int, seed: int = 0) -> bool:
     env = SnakeEnv(
         rows=rows,
         cols=cols,
-        obs_type="features",
+        obs_type="grid",  # cheapest obs; the policy reads env.snake directly
         max_steps_factor=4 * n,
     )
     policy = HamiltonianPolicy(rows, cols)
