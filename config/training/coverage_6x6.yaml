@@ -1,0 +1,44 @@
+# Phase 0 of the full-coverage goal (see docs/full-coverage-design.md).
+# Small even grid where 100% fill is genuinely learnable by pure RL.
+# Acceptance gate: agent reaches length 36 (full coverage) with non-trivial frequency.
+game:
+  rows: 6
+  cols: 6
+model:
+  arch: hybrid
+  obs_type: hybrid
+  hidden_size: 128
+  num_layers: 2        # 6x6 + MaxPool(2,2): 4 layers would collapse below 1x1 (D16)
+  activation: relu
+ppo:
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  clip_coef: 0.2
+  ent_coef: 0.03       # keep exploration up to avoid premature collapse
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+training:
+  num_envs: 256
+  num_steps: 128
+  num_updates: 0       # unlimited; stop on plateau or time limit
+  seed: 1
+  max_hours: 2.0
+  plateau_steps: 1000000
+  plateau_threshold: 0.1
+  # --- Coverage-oriented reward (D14) ---
+  dist_shaping_alpha: 0.0   # shaping off: causes greedy self-traps
+  step_penalty: 0.0         # ~0: stop punishing long fill paths (gamma supplies efficiency)
+  win_bonus: 10.0           # sharp terminal signal for filling the grid
+  max_memory_pct: 98
+  hypothesis_slug: coverage-6x6
+checkpointing:
+  num_checkpoints: 5
+experiments_dir: runs
+video:
+  num_videos: 5
+  final_episodes: 3
+  render_cell_size: 100
+  fps: 30

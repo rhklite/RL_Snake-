@@ -93,8 +93,12 @@ class SnakeEnv(gym.Env):
 
     Rewards
     -------
-    +1 for eating food, −1 for dying, −0.01 per step.
+    +1 for eating food, −1 for dying, ``step_penalty`` per step (default −0.025).
+    +``win_bonus`` when the snake fills the entire grid (default 0; coverage goal).
     Optional distance shaping: +alpha*(prev_dist - curr_dist) per step (default alpha=0).
+
+    For the full-coverage goal (see ``docs/full-coverage-design.md``), set
+    ``step_penalty`` near 0, ``win_bonus`` high, and leave distance shaping off.
     """
 
     metadata = {"render_modes": ["rgb_array"], "render_fps": 30}
@@ -108,6 +112,8 @@ class SnakeEnv(gym.Env):
         max_steps_factor: int = 200,
         render_cell_size: int = 60,  # 12x12 -> 720x720 (720p)
         dist_shaping_alpha: float = 0.0,  # distance shaping coefficient; 0 = disabled
+        step_penalty: float = -0.025,  # per-step reward; ~0 for coverage goal
+        win_bonus: float = 0.0,  # terminal reward for filling the whole grid
     ) -> None:
         super().__init__()
         assert obs_type in ("grid", "features", "hybrid")
@@ -118,6 +124,8 @@ class SnakeEnv(gym.Env):
         self.max_steps_factor = max_steps_factor
         self.render_cell_size = render_cell_size
         self.dist_shaping_alpha = dist_shaping_alpha
+        self.step_penalty = step_penalty
+        self.win_bonus = win_bonus
 
         self.action_space = spaces.Discrete(4)
         if obs_type == "grid":
@@ -188,7 +196,7 @@ class SnakeEnv(gym.Env):
         self._steps += 1
 
         terminated = False
-        reward = -0.025
+        reward = self.step_penalty
 
         if self._is_collision(head):
             terminated = True
@@ -209,6 +217,7 @@ class SnakeEnv(gym.Env):
                     "score": self._score,
                     "cause_of_death": self._cause_of_death,
                     "snake_length": len(self._snake),
+                    "coverage": len(self._snake) / (self.rows * self.cols),
                 },
             )
 
@@ -217,7 +226,13 @@ class SnakeEnv(gym.Env):
         if np.array_equal(head, self._food):
             self._score += 1
             reward = 1.0
-            self._place_food()
+            if len(self._snake) >= self.rows * self.cols:
+                # Grid fully covered: win. No free cell remains to place food.
+                terminated = True
+                reward += self.win_bonus
+                self._cause_of_death = "win"
+            else:
+                self._place_food()
         else:
             self._snake.pop()
             # Distance shaping only on non-eating steps (food position unchanged)
@@ -230,7 +245,7 @@ class SnakeEnv(gym.Env):
         self._update_grid()
 
         max_steps = self.max_steps_factor * len(self._snake)
-        truncated = self._steps >= max_steps
+        truncated = (not terminated) and self._steps >= max_steps
         if truncated:
             self._cause_of_death = "timeout"
 
@@ -243,6 +258,7 @@ class SnakeEnv(gym.Env):
                 "score": self._score,
                 "cause_of_death": self._cause_of_death,
                 "snake_length": len(self._snake),
+                "coverage": len(self._snake) / (self.rows * self.cols),
             },
         )
 

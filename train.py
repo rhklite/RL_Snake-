@@ -142,6 +142,8 @@ def make_env(rank: int, cfg: DictConfig) -> callable:
             obs_type=cfg.model.obs_type,
             render_mode=None,
             dist_shaping_alpha=cfg.training.get("dist_shaping_alpha", 0.0),
+            step_penalty=cfg.training.get("step_penalty", -0.025),
+            win_bonus=cfg.training.get("win_bonus", 0.0),
         )
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env.reset(seed=cfg.training.seed + rank)
@@ -509,7 +511,8 @@ def main() -> None:
         episode_returns: list[float] = []
         episode_lengths: list[int] = []
         snake_sizes: list[int] = []
-        death_counts: dict[str, int] = {"wall": 0, "body": 0, "timeout": 0}
+        death_counts: dict[str, int] = {"wall": 0, "body": 0, "timeout": 0, "win": 0}
+        grid_area = cfg.game.rows * cfg.game.cols
         start_time = time.time()
         train_start = time.monotonic()
         return_history: list[tuple[int, float]] = []
@@ -727,6 +730,8 @@ def main() -> None:
                 metrics["avg_return"] = float(np.mean(episode_returns[-recent_n:]))
                 metrics["avg_length"] = float(np.mean(episode_lengths[-recent_n:]))
                 metrics["avg_snake_length"] = float(np.mean(snake_sizes[-recent_n:]))
+                metrics["avg_coverage"] = metrics["avg_snake_length"] / grid_area
+                metrics["max_snake_length"] = float(max(snake_sizes[-recent_n:]))
                 if unlimited:
                     prefix = f"Update {update}"
                 else:
