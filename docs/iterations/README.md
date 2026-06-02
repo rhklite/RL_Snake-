@@ -21,6 +21,7 @@ This is the canonical history; the per-version files hold full detail.
 | [v6](v6-coverage-6x6.md) | 2026-05-26 | 6×6 | **Pivot to 100% coverage**: win bonus, step penalty→0, shaping off | **success** | **100% coverage, 67% win rate** |
 | [v7](v7-coverage-8x8.md) | 2026-06-01 | 8×8 | Clean scale-up: v6 recipe, **only grid size 6×6→8×8** | **success** | 88% coverage, 56% win rate |
 | [v8](v8-adaptive-transfer-8x8.md) | 2026-06-02 | 6×6→8×8 | **Size-agnostic encoder** (adaptive pool) + **`--init-from` warm-start curriculum** | **success** | 8×8 transfer **70% win** (vs 56% scratch), ~3× faster |
+| [v9](v9-ceiling-10x10.md) | 2026-06-02 | 10×10 | Pure-RL **ceiling probe**: from-scratch vs chained 8×8→10×10 transfer | **success (boundary)** | scratch walled ~63% cov/16% win; transfer ~78% cov/48% win (self-trap wall) |
 
 **Trajectory:** food-seeking optimization (v1–v5) plateaued at ~10% grid fill on 32×32 no matter
 the observation richness — the bottleneck was the *objective*, not the network. v6 reframed the
@@ -44,9 +45,10 @@ are not part of the numbered lineage.
 Unresolved across iterations (from [design-packet.md §10](../design-packet.md) and
 [full-coverage-design.md §10](../full-coverage-design.md)):
 
-1. **Pure-RL coverage ceiling** — how large a grid can RL fill before a Phase 2 structural prior is
-   required? Empirical; find via the curriculum. *Partial: pure RL fills 8×8 at 56% win (v7) /
-   warm-started 70% (v8); body/self-trap deaths are the scaling bottleneck. 10×10 next.*
+1. ~~**Pure-RL coverage ceiling**~~ — **answered (v9): ~10×10 is the boundary.** From-scratch walls
+   at ~63% cov / 16% win (never reaches 75%); chained transfer reaches ~78% cov / 48% win but also
+   plateaus. The residual wall is **self-trapping** (body deaths ~47% in both), which neither pure RL
+   nor warm-start removes → motivates the Phase 2 structural prior at ~10×10+.
 2. ~~**Encoder transfer across grid sizes**~~ — **answered (v8):** an `AdaptiveMaxPool2d` head makes
    the encoder grid-invariant and a 6×6 seed warm-starts 8×8 (~3× faster, 70% vs 56% win). [D17/D18]
 3. **Phase 2 prior form** — shaping-toward-Hamiltonian vs. action-masking to legal cycle moves vs.

@@ -207,7 +207,16 @@ across the curriculum.
     warm-start (D18)**. 6×6 seed = 70.7% win (no regression vs v6). 8×8 warm-started from it →
     **70% win, ~3× faster** than v7 from-scratch. Encoder transfer (open-Q#2) **confirmed.** Death
     profile shifted wall→body: wall-avoidance transfers, self-trapping is the scaling bottleneck.
-  - **Next (v9):** 10×10 warm-start to find the pure-RL ceiling (the Phase 1→2 boundary).
-- **Phase 2** (Hamiltonian/spiral prior): not started.
+  - **v9** (scratch `runs/0602_09_coverage-10x10-scratch` + transfer `runs/0602_12_coverage-10x10-transfer`,
+    2026-06-02): 10×10 ceiling probe (both runs adaptive arch, differ only in init). From-scratch
+    **walls at ~63% coverage / 16% win** (never reaches 75%); chained 8×8→10×10 transfer reaches
+    **~78% / 48% win** (~5–7× faster, peak 0.974) but also plateaus. **~10×10 is the Phase 1→2
+    boundary (open-Q#1, answered).** Residual failure = **self-trapping** (body deaths ~47% in both);
+    wall-avoidance transfers perfectly (wall deaths 37.5%→5.4%). Reactive PPO, even warm-started,
+    cannot learn the long-horizon planning to avoid boxing itself in.
+- **Phase 2** (Hamiltonian/spiral prior): **not started — now motivated by v9.** Target the
+  self-trap failure at 10×10, measured against the v9 transfer baseline (78% cov / 48% win). Revisit
+  open-Q#3 (shaping-toward-Hamiltonian vs action-masking to legal cycle moves vs residual RL on a
+  cycle follower) with v9 data in hand.
 </content>
 </invoke>
