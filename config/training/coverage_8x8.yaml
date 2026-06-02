@@ -1,0 +1,46 @@
+# v7 / Phase 1 — pure-RL coverage on the next even grid (see docs/full-coverage-design.md §4).
+# Clean single-variable step up from v6 (coverage_6x6): ONLY the grid size changes.
+# Everything else (reward, network depth, PPO) is held to isolate "does the same
+# coverage recipe scale 6x6 -> 8x8 with no architecture change?"
+# Goal: length 64 (full coverage) with non-trivial win rate; find where pure RL plateaus.
+game:
+  rows: 8
+  cols: 8
+model:
+  arch: hybrid
+  obs_type: hybrid
+  hidden_size: 128
+  num_layers: 2        # held from v6. 8x8 + one MaxPool: 8->4, last conv keeps 4x4 (flatten 32*16=512)
+  activation: relu
+ppo:
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  clip_coef: 0.2
+  ent_coef: 0.03       # keep exploration up to avoid premature collapse
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+training:
+  num_envs: 256
+  num_steps: 128
+  num_updates: 0       # unlimited; stop on plateau or time limit
+  seed: 1
+  max_hours: 4.0       # 8x8 is harder than 6x6 (~20min to gate); give more budget
+  plateau_steps: 1000000
+  plateau_threshold: 0.1
+  # --- Coverage-oriented reward (D14), held from v6 ---
+  dist_shaping_alpha: 0.0   # shaping off: causes greedy self-traps
+  step_penalty: 0.0         # ~0: stop punishing long fill paths (gamma supplies efficiency)
+  win_bonus: 10.0           # held from v6; open-Q#4 — relative win signal shrinks as grid grows, watch it
+  max_memory_pct: 98
+  hypothesis_slug: coverage-8x8
+checkpointing:
+  num_checkpoints: 5
+experiments_dir: runs
+video:
+  num_videos: 5
+  final_episodes: 3
+  render_cell_size: 100
+  fps: 30

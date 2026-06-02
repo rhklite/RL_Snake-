@@ -163,9 +163,13 @@ across the curriculum.
 
 ## 11. Implementation status
 
-- **Phase 0 code**: implemented, **not yet executed** — env win/coverage/reward knobs, training
-  coverage logging, and `config/training/coverage_6x6.yaml`. First run to perform is the Phase 0
-  6×6 acceptance gate (§4, §8).
-- Everything else (curriculum, Phase 2 prior): not started.
+- **Phase 0**: implemented and **executed — acceptance gate PASSED**. Run
+  `runs/0526_23_coverage-6x6` (2026-05-26). By update ~2393 (~20 min, ~13.5k SPS): **avg
+  coverage 1.0**, **win rate ~67%** (`death/win_pct`), avg return 45.0, entropy ~0.28 (settled,
+  no collapse), clip_frac ~0.025. The coverage reward (step_penalty 0 + win_bonus 10, shaping
+  off) was sufficient for pure RL to learn full space-filling on 6×6. Manually stopped (well past
+  the gate); `best.pt` is the policy of record. No `agent_final.pt` (killed before final save).
+- **Phase 1** (curriculum on larger even grids, size-agnostic encoder): not started — next step.
+- **Phase 2** (Hamiltonian/spiral prior): not started.
 </content>
 </invoke>
