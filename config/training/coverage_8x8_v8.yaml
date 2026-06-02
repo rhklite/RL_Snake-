@@ -1,0 +1,51 @@
+# v8 / Phase 1 — size-AGNOSTIC coverage on the 8x8 grid (next curriculum stage above 6x6).
+# Identical recipe to v7 (coverage_8x8) EXCEPT the CNN encoder is now grid-invariant:
+# model.adaptive_pool_size=4 drops the intermediate MaxPool and inserts AdaptiveMaxPool2d(4)
+# before Flatten, so flat_cnn = channels[-1]*4*4 = 32*16 = 512 for EVERY grid size.
+# Curriculum warm-start (6x6 -> 8x8): seed agent weights from a 6x6_v8 run via --init-from,
+# which loads weights ONLY (strict), fresh optimizer, start_update=0:
+#   python train.py --training coverage_8x8_v8 --init-from runs/<6x6_v8_run>
+# (Do NOT cp best.pt + --resume: best.pt is a full dict, so it would silently reload the
+#  6x6 optimizer/update-count — no shape error catches it since the encoder is grid-invariant.)
+game:
+  rows: 8
+  cols: 8
+model:
+  arch: hybrid
+  obs_type: hybrid
+  hidden_size: 128
+  num_layers: 2           # held from v6/v7; channels[-1]=32 must stay fixed for transfer
+  activation: relu
+  adaptive_pool_size: 4   # OPT-IN size-agnostic encoder. 8x8 pre-pool=8x8 >= 4 (no degenerate upsample).
+ppo:
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  clip_coef: 0.2
+  ent_coef: 0.03          # keep exploration up to avoid premature collapse
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+training:
+  num_envs: 256
+  num_steps: 128
+  num_updates: 0          # unlimited; stop on plateau or time limit
+  seed: 1
+  max_hours: 4.0          # 8x8 is harder than 6x6 (~20min to gate); give more budget
+  plateau_steps: 1000000
+  plateau_threshold: 0.1
+  # --- Coverage-oriented reward (D14), held from v6/v7 ---
+  dist_shaping_alpha: 0.0
+  step_penalty: 0.0
+  win_bonus: 10.0
+  max_memory_pct: 98
+  hypothesis_slug: coverage-8x8-v8
+checkpointing:
+  num_checkpoints: 5
+experiments_dir: runs
+video:
+  num_videos: 5
+  final_episodes: 3
+  render_cell_size: 100
+  fps: 30

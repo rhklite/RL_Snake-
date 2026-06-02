@@ -72,10 +72,10 @@ class _Tee:
         return self._stream.fileno()
 
 
-def parse_args() -> tuple[DictConfig, bool, Path | None]:
+def parse_args() -> tuple[DictConfig, bool, Path | None, Path | None]:
     """Load game + training YAML configs, merge CLI overrides.
 
-    Returns (cfg, track, resume_dir).
+    Returns (cfg, track, resume_dir, init_from).
     """
     parser = argparse.ArgumentParser(description="PPO Snake Training")
     parser.add_argument(
@@ -91,7 +91,21 @@ def parse_args() -> tuple[DictConfig, bool, Path | None]:
         default=None,
         help="Path to an existing run directory to resume training from",
     )
+    parser.add_argument(
+        "--init-from",
+        type=str,
+        default=None,
+        help=(
+            "Warm-start a FRESH run from a checkpoint (.pt) or run dir: loads agent "
+            "weights ONLY (strict), with a fresh optimizer and start_update=0. Use for "
+            "curriculum transfer across grid sizes (needs a size-agnostic encoder, "
+            "i.e. model.adaptive_pool_size set). Mutually exclusive with --resume."
+        ),
+    )
     args, overrides = parser.parse_known_args()
+
+    if args.resume and args.init_from:
+        parser.error("--resume and --init-from are mutually exclusive")
 
     resume_dir: Path | None = None
     if args.resume:
@@ -105,7 +119,8 @@ def parse_args() -> tuple[DictConfig, bool, Path | None]:
     if overrides:
         cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(overrides))
 
-    return cfg, args.track, resume_dir
+    init_from = Path(args.init_from) if args.init_from else None
+    return cfg, args.track, resume_dir, init_from
 
 
 def _find_latest_checkpoint(ckpt_dir: Path) -> Path | None:
@@ -378,7 +393,7 @@ def _record_episode(
 
 
 def main() -> None:
-    cfg, track, resume_dir = parse_args()
+    cfg, track, resume_dir, init_from = parse_args()
 
     if cfg.model.arch == "cnn" and cfg.model.obs_type != "grid":
         raise ValueError("CNN architecture requires obs_type='grid'")
@@ -431,6 +446,7 @@ def main() -> None:
             hidden_size=cfg.model.hidden_size,
             num_layers=cfg.model.num_layers,
             activation=cfg.model.activation,
+            adaptive_pool_size=cfg.model.get("adaptive_pool_size", None),
         ).to(device)
         optimizer = optim.Adam(agent.parameters(), lr=cfg.ppo.learning_rate, eps=1e-5)
 
@@ -462,6 +478,29 @@ def main() -> None:
             print(
                 f"Resumed from {ckpt_path.name} at update {start_update} "
                 f"(best_avg_return={best_avg_return:.2f})"
+            )
+        elif init_from:
+            init_ckpt = init_from
+            if init_ckpt.is_dir():
+                init_ckpt = _find_latest_checkpoint(
+                    init_ckpt / "checkpoints"
+                ) or _find_latest_checkpoint(init_ckpt)
+                if init_ckpt is None:
+                    raise FileNotFoundError(
+                        f"No checkpoint found under {init_from}"
+                    )
+            ckpt = torch.load(init_ckpt, map_location=device, weights_only=False)
+            state = (
+                ckpt["agent"]
+                if isinstance(ckpt, dict) and "agent" in ckpt
+                else ckpt
+            )
+            # strict load: a shape mismatch (e.g. warm-starting across grid sizes
+            # without a size-agnostic encoder) MUST fail visibly, not silently.
+            agent.load_state_dict(state)
+            print(
+                f"Warm-started agent weights from {init_ckpt} "
+                f"(fresh optimizer, start_update=0, best_avg_return reset)"
             )
 
         is_hybrid = cfg.model.obs_type == "hybrid"

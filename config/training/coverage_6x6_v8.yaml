@@ -1,0 +1,49 @@
+# v8 / Phase 1 base — size-AGNOSTIC coverage seed on the 6x6 floor.
+# Identical recipe to v6 (coverage_6x6) EXCEPT the CNN encoder is now grid-invariant:
+# model.adaptive_pool_size=4 drops the intermediate MaxPool and inserts AdaptiveMaxPool2d(4)
+# before Flatten, so flat_cnn = channels[-1]*4*4 = 32*16 = 512 for EVERY grid size.
+# This checkpoint is the curriculum seed: its weights strict-load into an 8x8 (then 10x10...) model.
+# NOTE: v6's existing checkpoint was trained WITHOUT this flag (default arch, flat=288, shape-locked)
+# and CANNOT be transferred; this run re-seeds 6x6 under the adaptive arch.
+game:
+  rows: 6
+  cols: 6
+model:
+  arch: hybrid
+  obs_type: hybrid
+  hidden_size: 128
+  num_layers: 2           # held across the whole curriculum; channels[-1]=32 must stay fixed for transfer
+  activation: relu
+  adaptive_pool_size: 4   # OPT-IN size-agnostic encoder. 6x6 pre-pool=6x6 >= 4 (no degenerate upsample).
+ppo:
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  clip_coef: 0.2
+  ent_coef: 0.03          # keep exploration up to avoid premature collapse
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+training:
+  num_envs: 256
+  num_steps: 128
+  num_updates: 0          # unlimited; stop on plateau or time limit
+  seed: 1
+  max_hours: 2.0
+  plateau_steps: 1000000
+  plateau_threshold: 0.1
+  # --- Coverage-oriented reward (D14), held from v6 ---
+  dist_shaping_alpha: 0.0
+  step_penalty: 0.0
+  win_bonus: 10.0
+  max_memory_pct: 98
+  hypothesis_slug: coverage-6x6-v8
+checkpointing:
+  num_checkpoints: 5
+experiments_dir: runs
+video:
+  num_videos: 5
+  final_episodes: 3
+  render_cell_size: 100
+  fps: 30

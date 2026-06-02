@@ -184,6 +184,7 @@ class HybridActorCritic(nn.Module):
         num_layers: int = 4,
         activation: str = "relu",
         feat_hidden: int = 64,
+        adaptive_pool_size: int | None = None,
     ) -> None:
         super().__init__()
 
@@ -196,8 +197,18 @@ class HybridActorCritic(nn.Module):
                 )
             )
             conv_layers.append(_get_activation(activation))
-            if i < num_layers - 1:
+            if adaptive_pool_size is None and i < num_layers - 1:
                 conv_layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
+        if adaptive_pool_size is not None:
+            with torch.no_grad():
+                pre = nn.Sequential(*conv_layers)(torch.zeros(1, 4, rows, cols))
+            if min(pre.shape[-2], pre.shape[-1]) < adaptive_pool_size:
+                raise ValueError(
+                    f"adaptive_pool_size={adaptive_pool_size} exceeds pre-pool "
+                    f"spatial {tuple(pre.shape[-2:])} for {rows}x{cols}; "
+                    f"AdaptiveMaxPool would upsample (degenerate)."
+                )
+            conv_layers.append(nn.AdaptiveMaxPool2d(adaptive_pool_size))
         conv_layers.append(nn.Flatten())
         self.cnn_encoder = nn.Sequential(*conv_layers)
 
@@ -255,6 +266,7 @@ def make_agent(
     hidden_size: int = 128,
     num_layers: int = 2,
     activation: str = "relu",
+    adaptive_pool_size: int | None = None,
 ) -> nn.Module:
     """Factory to create the right network for the given config."""
     if arch == "cnn":
@@ -288,5 +300,6 @@ def make_agent(
             hidden_size=hidden_size,
             num_layers=num_layers,
             activation=activation,
+            adaptive_pool_size=adaptive_pool_size,
         )
     raise ValueError(f"Unknown architecture: {arch!r}. Use 'cnn', 'mlp', or 'hybrid'.")
