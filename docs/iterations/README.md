@@ -20,12 +20,15 @@ This is the canonical history; the per-version files hold full detail.
 | [v5](v5-fromscratch-validation.md) | 2026-03-20 | 32×32 | From-scratch validation of v4 design, 1024 envs | partial | return 64, len 107 |
 | [v6](v6-coverage-6x6.md) | 2026-05-26 | 6×6 | **Pivot to 100% coverage**: win bonus, step penalty→0, shaping off | **success** | **100% coverage, 67% win rate** |
 | [v7](v7-coverage-8x8.md) | 2026-06-01 | 8×8 | Clean scale-up: v6 recipe, **only grid size 6×6→8×8** | **success** | 88% coverage, 56% win rate |
+| [v8](v8-adaptive-transfer-8x8.md) | 2026-06-02 | 6×6→8×8 | **Size-agnostic encoder** (adaptive pool) + **`--init-from` warm-start curriculum** | **success** | 8×8 transfer **70% win** (vs 56% scratch), ~3× faster |
 
 **Trajectory:** food-seeking optimization (v1–v5) plateaued at ~10% grid fill on 32×32 no matter
 the observation richness — the bottleneck was the *objective*, not the network. v6 reframed the
 goal to explicit coverage and pure RL solved a small even grid completely; v7 showed the same recipe
 scales one step up (8×8, 56% win) with no architecture change — a gentle degradation, not a wall.
-See [full-coverage-design.md](../full-coverage-design.md) for the forward plan (Phase 1 curriculum,
+v8 made the encoder grid-invariant (adaptive pooling) and showed a 6×6 seed **transfers** to 8×8 via
+warm-start: ~3× faster convergence and a higher ceiling (70% vs 56%). See
+[full-coverage-design.md](../full-coverage-design.md) for the forward plan (Phase 1 curriculum,
 Phase 2 Hamiltonian prior).
 
 ## v0 — pre-history (not numbered)
@@ -42,9 +45,10 @@ Unresolved across iterations (from [design-packet.md §10](../design-packet.md) 
 [full-coverage-design.md §10](../full-coverage-design.md)):
 
 1. **Pure-RL coverage ceiling** — how large a grid can RL fill before a Phase 2 structural prior is
-   required? Empirical; find via the curriculum.
-2. **Encoder transfer across grid sizes** — does one encoder transfer, or is a global-pooling head /
-   per-size fine-tune needed? (Blocks the curriculum.)
+   required? Empirical; find via the curriculum. *Partial: pure RL fills 8×8 at 56% win (v7) /
+   warm-started 70% (v8); body/self-trap deaths are the scaling bottleneck. 10×10 next.*
+2. ~~**Encoder transfer across grid sizes**~~ — **answered (v8):** an `AdaptiveMaxPool2d` head makes
+   the encoder grid-invariant and a 6×6 seed warm-starts 8×8 (~3× faster, 70% vs 56% win). [D17/D18]
 3. **Phase 2 prior form** — shaping-toward-Hamiltonian vs. action-masking to legal cycle moves vs.
    residual RL on a cycle follower?
 4. **`win_bonus` magnitude** — 10.0 worked on 6×6; not validated at larger scales.

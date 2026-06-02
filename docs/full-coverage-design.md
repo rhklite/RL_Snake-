@@ -148,6 +148,35 @@ across the curriculum.
 - **Decision**: 6×6 uses `num_layers: 2`. A size-agnostic encoder (e.g. adaptive/global pooling)
   is deferred to Phase 1 when curriculum transfer is built.
 - **Why**: Default `num_layers: 4` + `MaxPool(2,2)` collapses 6×6 below 1×1 (§7).
+- **Status**: superseded for the curriculum by **D17** (the deferred adaptive head is now built).
+
+### D17: Size-agnostic encoder via adaptive pooling (v8)
+- **Decision**: Opt-in `model.adaptive_pool_size: int|null` (default null). When set to `N`, the
+  hybrid CNN drops the intermediate `MaxPool(2,2)` layers and inserts `AdaptiveMaxPool2d(N)` before
+  `Flatten`, so the CNN flatten dim = `channels[-1]·N·N` is **identical across all grid sizes**.
+  Phase 1 uses `N=4`. A guard raises if the pre-pool spatial dim < `N` (degenerate upsample).
+- **Why**: The flatten dim was computed from a fixed `(rows,cols)` dummy → a smaller-grid checkpoint
+  could not load into a larger-grid model, blocking the curriculum (open-Q#2). Adaptive pooling makes
+  every parameter shape grid-invariant, enabling weight transfer.
+- **Why null default**: keep v6/v7 (and the live runs' saved configs) byte-for-byte reproducible.
+- **Why N=4, MaxPool removed**: with MaxPool kept, 6×6 collapses to 3×3 pre-pool, so `N=4` would
+  upsample degenerately; removing MaxPool keeps pre-pool spatial == grid size (6≥4, safe). The 4×4
+  bottleneck also retains more spatial detail than v6's post-MaxPool 3×3 flatten (no 6×6 regression).
+- **Verified (v8)**: strict 6×6→8×8/10×10 load; default path unchanged (flat 288 @6×6); no 6×6 win
+  regression (70.7% vs v6 67%).
+- **Alternatives**: global pool (1×1) — discards spatial detail, rejected; fixed max-canvas + masking
+  — more env surgery, deferred.
+
+### D18: Warm-start curriculum via `--init-from` (not in-place resume) (v8)
+- **Decision**: `train.py --init-from <ckpt|run>` seeds a **fresh** run with agent weights only
+  (strict load), fresh optimizer, `start_update=0`, `best_avg_return` reset. The curriculum advances
+  by warm-starting the next grid size from the previous stage's checkpoint.
+- **Why**: `--resume <run> rows=k cols=k` resumes **in place** (overwrites the seed dir, continues the
+  prior optimizer/update-count) — wrong for a new stage. And cp-`best.pt`+`--resume` loads silently
+  wrong: `best.pt` is a full dict, so the resume path reloads stale optimizer/update with **no shape
+  error** to catch it (shapes are grid-invariant under D17). `--init-from` makes the warm-start
+  explicit and **fails visibly** on a genuine shape mismatch (e.g. transfer without D17).
+- **Result (v8)**: 8×8 warm-start from a 6×6 seed → 70% win vs 56% from-scratch, ~3× faster.
 
 ## 10. Open questions
 
@@ -169,7 +198,16 @@ across the curriculum.
   no collapse), clip_frac ~0.025. The coverage reward (step_penalty 0 + win_bonus 10, shaping
   off) was sufficient for pure RL to learn full space-filling on 6×6. Manually stopped (well past
   the gate); `best.pt` is the policy of record. No `agent_final.pt` (killed before final save).
-- **Phase 1** (curriculum on larger even grids, size-agnostic encoder): not started — next step.
+- **Phase 1** (curriculum on larger even grids, size-agnostic encoder): **in progress.**
+  - **v7** (`runs/0601_22_coverage-8x8`, 2026-06-01): 8×8 pure RL from scratch, same recipe as v6,
+    only grid size changed → **56% win, 88% coverage** in 4h. Pure RL scales one step up; gentle
+    degradation, not a wall.
+  - **v8** (seed `runs/0602_02_coverage-6x6-v8` + transfer `runs/0602_04_coverage-8x8-v8`,
+    2026-06-02): built the **size-agnostic adaptive-pool encoder (D17)** and **`--init-from`
+    warm-start (D18)**. 6×6 seed = 70.7% win (no regression vs v6). 8×8 warm-started from it →
+    **70% win, ~3× faster** than v7 from-scratch. Encoder transfer (open-Q#2) **confirmed.** Death
+    profile shifted wall→body: wall-avoidance transfers, self-trapping is the scaling bottleneck.
+  - **Next (v9):** 10×10 warm-start to find the pure-RL ceiling (the Phase 1→2 boundary).
 - **Phase 2** (Hamiltonian/spiral prior): not started.
 </content>
 </invoke>
