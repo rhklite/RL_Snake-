@@ -1,0 +1,51 @@
+# v9 / Phase 1 — 10x10 coverage, size-agnostic encoder. Used for BOTH runs:
+#   from-scratch baseline:  python train.py --training coverage_10x10_v8 \
+#                             training.hypothesis_slug=coverage-10x10-scratch
+#   chained transfer:       python train.py --training coverage_10x10_v8 \
+#                             --init-from runs/<8x8_v8_transfer_run> \
+#                             training.hypothesis_slug=coverage-10x10-transfer
+# Both use adaptive_pool_size=4 so they are architecturally IDENTICAL (only the init differs) —
+# a cleaner scratch-vs-transfer comparison than v7/v8 (which also differed in arch).
+# Goal: find the pure-RL ceiling at 10x10 (open-Q#1, the Phase 1->2 boundary).
+game:
+  rows: 10
+  cols: 10
+model:
+  arch: hybrid
+  obs_type: hybrid
+  hidden_size: 128
+  num_layers: 2           # held across the curriculum; channels[-1]=32 fixed for transfer
+  activation: relu
+  adaptive_pool_size: 4   # size-agnostic encoder. 10x10 pre-pool=10x10 >= 4 (no degenerate upsample)
+ppo:
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  clip_coef: 0.2
+  ent_coef: 0.03          # keep exploration up to avoid premature collapse
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+training:
+  num_envs: 256
+  num_steps: 128
+  num_updates: 0          # unlimited; run until plateau (external coverage watcher) or time backstop
+  seed: 1
+  max_hours: 10.0         # generous backstop; the coverage-plateau watcher stops earlier on convergence
+  plateau_steps: 1000000
+  plateau_threshold: 0.1  # built-in (avg_return) detector left effectively-off; see file header
+  # --- Coverage-oriented reward (D14), held from v6/v7/v8 ---
+  dist_shaping_alpha: 0.0
+  step_penalty: 0.0
+  win_bonus: 10.0         # open-Q#4: relative weight keeps shrinking with grid size; first knob if it stalls
+  max_memory_pct: 98
+  hypothesis_slug: coverage-10x10
+checkpointing:
+  num_checkpoints: 5
+experiments_dir: runs
+video:
+  num_videos: 5
+  final_episodes: 3
+  render_cell_size: 100
+  fps: 30
