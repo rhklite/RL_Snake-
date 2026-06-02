@@ -19,11 +19,13 @@ This is the canonical history; the per-version files hold full detail.
 | [v4](v4-bfs-isolated.md) | 2026-03-17 | 32×32 | BFS isolated (MaxPool restored) + mid-run tail/scaling fix (D10/D11) | mid-run fix | plateau ~95→105 |
 | [v5](v5-fromscratch-validation.md) | 2026-03-20 | 32×32 | From-scratch validation of v4 design, 1024 envs | partial | return 64, len 107 |
 | [v6](v6-coverage-6x6.md) | 2026-05-26 | 6×6 | **Pivot to 100% coverage**: win bonus, step penalty→0, shaping off | **success** | **100% coverage, 67% win rate** |
+| [v7](v7-coverage-8x8.md) | 2026-06-01 | 8×8 | Clean scale-up: v6 recipe, **only grid size 6×6→8×8** | **success** | 88% coverage, 56% win rate |
 
 **Trajectory:** food-seeking optimization (v1–v5) plateaued at ~10% grid fill on 32×32 no matter
 the observation richness — the bottleneck was the *objective*, not the network. v6 reframed the
-goal to explicit coverage and pure RL solved a small even grid completely. See
-[full-coverage-design.md](../full-coverage-design.md) for the forward plan (Phase 1 curriculum,
+goal to explicit coverage and pure RL solved a small even grid completely; v7 showed the same recipe
+scales one step up (8×8, 56% win) with no architecture change — a gentle degradation, not a wall.
+See [full-coverage-design.md](../full-coverage-design.md) for the forward plan (Phase 1 curriculum,
 Phase 2 Hamiltonian prior).
 
 ## v0 — pre-history (not numbered)
