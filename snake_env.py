@@ -66,6 +66,63 @@ DIRECTION_VECTORS = {
 
 OPPOSITE = {UP: DOWN, DOWN: UP, LEFT: RIGHT, RIGHT: LEFT}
 
+VEC2ACT = {(0, -1): UP, (0, 1): DOWN, (-1, 0): LEFT, (1, 0): RIGHT}
+
+
+def _comb_order_rows_even(rows: int, cols: int) -> list[tuple[int, int]]:
+    """Cell visit order for a 'comb' Hamiltonian cycle, requires rows even.
+
+    Top row left->right, interior rows boustrophedon over columns 1..cols-1,
+    then the column-0 spine bottom->top closes the loop back to (0, 0).
+    """
+    order = [(x, 0) for x in range(cols)]
+    for y in range(1, rows):
+        xs = range(cols - 1, 0, -1) if (y % 2) == 1 else range(1, cols)
+        order.extend((x, y) for x in xs)
+    order.extend((0, y) for y in range(rows - 1, 0, -1))
+    return order
+
+
+def build_cycle_succ(rows: int, cols: int) -> np.ndarray:
+    """Successor-direction field for a comb Hamiltonian cycle on an even grid.
+
+    Returns an int8 ``(rows, cols)`` array where ``succ[y, x]`` is the action
+    (UP/DOWN/LEFT/RIGHT) that advances one cell along a fixed Hamiltonian cycle.
+    Raises ``ValueError`` on a both-odd grid (no cycle exists, area is odd).
+    Self-asserts validity (permutation, 4-adjacency, closed tour) and fails
+    visibly on any violation.
+    """
+    if rows % 2 == 0:
+        order = _comb_order_rows_even(rows, cols)
+    elif cols % 2 == 0:
+        order = [(y, x) for (x, y) in _comb_order_rows_even(cols, rows)]
+    else:
+        raise ValueError(
+            f"No Hamiltonian cycle for both-odd grid {rows}x{cols} (area is odd)"
+        )
+
+    n = rows * cols
+    assert len(order) == n and len(set(order)) == n, "cycle order is not a permutation"
+
+    succ = np.full((rows, cols), -1, dtype=np.int8)
+    for i, (x, y) in enumerate(order):
+        nx, ny = order[(i + 1) % n]
+        dx, dy = nx - x, ny - y
+        assert abs(dx) + abs(dy) == 1, f"non-adjacent cycle step {(x, y)}->{(nx, ny)}"
+        succ[y, x] = VEC2ACT[(dx, dy)]
+    assert (succ != -1).all(), "cycle successor field has holes"
+
+    # Independent closed-tour walk: visit all n cells once and return to (0, 0).
+    cx, cy, seen = 0, 0, set()
+    for _ in range(n):
+        assert (cx, cy) not in seen, "cycle revisits a cell"
+        seen.add((cx, cy))
+        dx, dy = DIRECTION_VECTORS[int(succ[cy, cx])]
+        cx, cy = cx + dx, cy + dy
+    assert (cx, cy) == (0, 0) and len(seen) == n, "cycle did not close over all cells"
+    return succ
+
+
 CELL_EMPTY = 0
 CELL_BODY = 1
 CELL_HEAD = 2
@@ -96,6 +153,8 @@ class SnakeEnv(gym.Env):
     +1 for eating food, −1 for dying, ``step_penalty`` per step (default −0.025).
     +``win_bonus`` when the snake fills the entire grid (default 0; coverage goal).
     Optional distance shaping: +alpha*(prev_dist - curr_dist) per step (default alpha=0).
+    Optional Hamiltonian cycle shaping: +``cycle_beta`` for taking the on-cycle
+    successor move (bonus-only, never penalized; default 0 = disabled).
 
     For the full-coverage goal (see ``docs/full-coverage-design.md``), set
     ``step_penalty`` near 0, ``win_bonus`` high, and leave distance shaping off.
@@ -114,6 +173,7 @@ class SnakeEnv(gym.Env):
         dist_shaping_alpha: float = 0.0,  # distance shaping coefficient; 0 = disabled
         step_penalty: float = -0.025,  # per-step reward; ~0 for coverage goal
         win_bonus: float = 0.0,  # terminal reward for filling the whole grid
+        cycle_beta: float = 0.0,  # +beta for the on-cycle move, 0 otherwise; 0 disables
     ) -> None:
         super().__init__()
         assert obs_type in ("grid", "features", "hybrid")
@@ -126,6 +186,10 @@ class SnakeEnv(gym.Env):
         self.dist_shaping_alpha = dist_shaping_alpha
         self.step_penalty = step_penalty
         self.win_bonus = win_bonus
+        self.cycle_beta = cycle_beta
+        # Precompute the Hamiltonian cycle successor field once (depends only on
+        # grid size). None when shaping is disabled, so behavior is unchanged.
+        self._cycle_succ = build_cycle_succ(rows, cols) if cycle_beta != 0.0 else None
 
         self.action_space = spaces.Discrete(4)
         if obs_type == "grid":
@@ -192,6 +256,14 @@ class SnakeEnv(gym.Env):
             else 0
         )
 
+        # Hamiltonian cycle-alignment bonus: read the PRE-move head and the
+        # resolved heading (post opposite-guard). Added only on the surviving
+        # non-win path below, so death/win signals stay clean.
+        cyc_bonus = 0.0
+        if self._cycle_succ is not None:
+            if self._direction == int(self._cycle_succ[int(head[1]), int(head[0])]):
+                cyc_bonus = self.cycle_beta
+
         head += DIRECTION_VECTORS[self._direction]
         self._steps += 1
 
@@ -241,6 +313,12 @@ class SnakeEnv(gym.Env):
                     int(head[1]) - int(self._food[1])
                 )
                 reward += self.dist_shaping_alpha * (prev_dist - curr_dist)
+
+        # Surviving path only: excludes the collision early-return (reward -1.0)
+        # and the win branch (terminated, reward 1.0+win_bonus). On a food-eating
+        # non-win step reward becomes 1.0 + cyc_bonus.
+        if not terminated:
+            reward += cyc_bonus
 
         self._update_grid()
 

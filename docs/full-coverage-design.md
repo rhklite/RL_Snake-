@@ -178,13 +178,45 @@ across the curriculum.
   explicit and **fails visibly** on a genuine shape mismatch (e.g. transfer without D17).
 - **Result (v8)**: 8×8 warm-start from a 6×6 seed → 70% win vs 56% from-scratch, ~3× faster.
 
+### D19: Hamiltonian cycle-alignment shaping reward (Phase 2 / v10)
+- **Decision**: Resolve open-Q#3 with the **shaping** option (not masking, not residual). Add a
+  reward-only, **bonus-only** term: `+cycle_beta` (default `0.03`) when the executed move at the
+  **pre-move head** equals the successor direction of a fixed Hamiltonian cycle; `0` otherwise
+  (off-cycle is **never penalized**). The cycle is a parity-robust "comb + col-0 spine" construction
+  (`build_cycle_succ`, self-asserting; raises on both-odd grids), precomputed once per env from grid
+  size → O(1)/step. Also switch best-checkpoint selection to `best_metric: coverage` (shaped
+  `avg_return` is no longer comparable to v9).
+- **Why shaping over masking/residual**: smallest change to the existing PPO/coverage pipeline;
+  **reward-only keeps the obs at 4 channels so the v9 strict warm-start loads tensor-for-tensor**
+  (masking needs per-step legal-move infra and caps quality at the cycle; residual needs a separate
+  cycle-follower). A judge-panel scored it 8.0 vs PBRS 7.3 / annealed 6.7 / obs-channel 4.3.
+- **Why bonus-only (not symmetric ±beta)**: symmetric shaping has `E≈−beta/3` under uniform-legal
+  play (1 of 3 legal non-opposite moves is on-cycle), which—with `step_penalty=0` and no truncation
+  penalty—can make dying relatively attractive and taxes legitimate food shortcuts. Bonus-only
+  (`E=+beta/3`) still applies anti-self-trap pressure via opportunity cost, never punishes a shortcut.
+- **Why beta=0.03, fixed**: discounted farm ceiling `beta/(1−γ)=3.0 ≪ win_bonus=10`, so no
+  cycle-walking trajectory can out-rank a win → **shaped optimum == true 100%-fill optimum**. The env
+  is stateless w.r.t. global step, so in-env annealing is rejected; anneal (if needed) is done
+  deterministically via a Phase B `cycle_beta=0.0` warm-restart from the Phase A run.
+- **Correctness guards**: bonus excluded from the death early-return (−1.0) and the win branch
+  (1.0+win_bonus); keyed off `self._direction` (post opposite-guard), not the raw action;
+  `cycle_beta=0.0` ⇒ `_cycle_succ=None` ⇒ byte-identical to v7/v8/v9. Gated by
+  `scripts/verify_cycle_shaping.py` (cycle validity incl. zero-U-turn, pre-move-head firing, clean
+  death/win, disabled-no-op, farm ceiling, strict v9-checkpoint load — 8/8 pass).
+- **Known nudge (documented, not a bug)**: `succ(head)` can point into the snake's own body when
+  off-phase, offering +beta for a locally fatal move; death (−1.0) dominates +beta so it can never
+  tip a fatal move — the policy simply earns 0 by deviating (the BFS reachability channel already
+  supplies the safety signal).
+
 ## 10. Open questions
 
 1. How large a grid can pure RL fill (Phase 1 → Phase 2 boundary)? Empirical, find via curriculum.
 2. Does the encoder transfer across grid sizes, or do we need a global-pooling head / per-size
    fine-tune?
 3. Phase 2: shaping-toward-Hamiltonian vs. action-masking to legal cycle moves vs. residual RL on
-   top of a cycle follower — which gives the best efficiency/guarantee trade-off?
+   top of a cycle follower — which gives the best efficiency/guarantee trade-off? **Answered (v10):
+   shaping chosen (D19)** — smallest pipeline change and warm-start-preserving; masking/residual held
+   as escalation if the shaping prior plateaus.
 4. Right `win_bonus` magnitude relative to `+1` food and `−1` death so it's a clear but not
    destabilizing terminal signal.
 5. Does the BFS channel (D3) actually help coverage, or is it noise on small grids? Re-evaluate
@@ -214,9 +246,15 @@ across the curriculum.
     boundary (open-Q#1, answered).** Residual failure = **self-trapping** (body deaths ~47% in both);
     wall-avoidance transfers perfectly (wall deaths 37.5%→5.4%). Reactive PPO, even warm-started,
     cannot learn the long-horizon planning to avoid boxing itself in.
-- **Phase 2** (Hamiltonian/spiral prior): **not started — now motivated by v9.** Target the
-  self-trap failure at 10×10, measured against the v9 transfer baseline (78% cov / 48% win). Revisit
-  open-Q#3 (shaping-toward-Hamiltonian vs action-masking to legal cycle moves vs residual RL on a
-  cycle follower) with v9 data in hand.
+- **Phase 2** (Hamiltonian/spiral prior): **built (v10), run pending.** Open-Q#3 resolved to the
+  **shaping** option (D19): a reward-only, bonus-only cycle-alignment term (`cycle_beta=0.03`),
+  warm-started from the v9 transfer policy at 10×10, targeting the self-trap failure (body deaths
+  ~47%). Reward-only keeps the obs 4-channel so the v9 strict warm-start loads; gated by
+  `scripts/verify_cycle_shaping.py` (8/8) + a smoke launch. Measure on `death/body_pct`,
+  `avg_coverage`, win-rate (reward-invariant) vs the v9 baseline (78% cov / 48% win); `avg_return`
+  is shaped and not comparable. A `cycle_beta=0.0` warm-restart control isolates shaping gain from
+  continued-training gain. Launch:
+  `python train.py --training coverage_10x10_v10 --init-from runs/0602_12_coverage-10x10-transfer
+  training.hypothesis_slug=coverage-10x10-cycle`.
 </content>
 </invoke>

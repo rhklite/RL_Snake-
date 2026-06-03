@@ -159,6 +159,7 @@ def make_env(rank: int, cfg: DictConfig) -> callable:
             dist_shaping_alpha=cfg.training.get("dist_shaping_alpha", 0.0),
             step_penalty=cfg.training.get("step_penalty", -0.025),
             win_bonus=cfg.training.get("win_bonus", 0.0),
+            cycle_beta=cfg.training.get("cycle_beta", 0.0),
         )
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env.reset(seed=cfg.training.seed + rank)
@@ -461,6 +462,10 @@ def main() -> None:
 
         start_update = 0
         best_avg_return = -float("inf")
+        # Select best.pt on this metric. "coverage" is reward-invariant, so it
+        # stays comparable when a shaping term (e.g. cycle_beta) shifts avg_return.
+        best_metric = cfg.training.get("best_metric", "avg_return")
+        best_score = -float("inf")
         if resume_dir:
             ckpt_path = _find_latest_checkpoint(exp_dir / "checkpoints")
             if ckpt_path is None:
@@ -473,6 +478,10 @@ def main() -> None:
                 optimizer.load_state_dict(ckpt["optimizer"])
                 start_update = ckpt.get("update", 0)
                 best_avg_return = ckpt.get("best_avg_return", -float("inf"))
+                # Restore the best-selection threshold so the first post-resume
+                # eval can't clobber best.pt. Pre-v10 checkpoints lack best_score;
+                # fall back to best_avg_return (correct for the default metric).
+                best_score = ckpt.get("best_score", best_avg_return)
             else:
                 agent.load_state_dict(ckpt)
             print(
@@ -799,9 +808,14 @@ def main() -> None:
 
             # --- Best-reward tracking ---
             if episode_returns:
-                avg_return = metrics["avg_return"]
-                if avg_return > best_avg_return:
-                    best_avg_return = avg_return
+                cand = (
+                    metrics["avg_coverage"]
+                    if best_metric == "coverage"
+                    else metrics["avg_return"]
+                )
+                if cand > best_score:
+                    best_score = cand
+                    best_avg_return = metrics["avg_return"]  # recorded for back-compat
                     best_ckpt = exp_dir / "checkpoints" / "best.pt"
                     torch.save(
                         {
@@ -809,6 +823,8 @@ def main() -> None:
                             "optimizer": optimizer.state_dict(),
                             "update": update,
                             "best_avg_return": best_avg_return,
+                            "best_score": best_score,
+                            "best_metric": best_metric,
                         },
                         best_ckpt,
                     )
@@ -871,6 +887,8 @@ def main() -> None:
                         "optimizer": optimizer.state_dict(),
                         "update": update,
                         "best_avg_return": best_avg_return,
+                        "best_score": best_score,
+                        "best_metric": best_metric,
                     },
                     ckpt_path,
                 )
@@ -894,6 +912,8 @@ def main() -> None:
                 "optimizer": optimizer.state_dict(),
                 "update": update,
                 "best_avg_return": best_avg_return,
+                "best_score": best_score,
+                "best_metric": best_metric,
             },
             final_ckpt,
         )

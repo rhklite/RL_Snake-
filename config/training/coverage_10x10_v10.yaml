@@ -1,0 +1,67 @@
+# v10 / Phase 2 — 10x10 coverage with Hamiltonian cycle-alignment SHAPING REWARD.
+# Targets the dominant residual failure: body/self-trap deaths (~47% at 10x10), which are
+# scale-dependent, do NOT transfer, and cannot be learned reactively. 100 cells = EVEN ->
+# a Hamiltonian cycle exists; following it is a guaranteed full-fill, never-self-trapping path.
+#
+# REWARD-ONLY (obs unchanged, stays 4-channel) so the v9 strict warm-start is preserved.
+# Bonus-only directional alignment: +cycle_beta for taking the on-cycle successor move,
+# 0 for any other move (never penalized). Discounted farm ceiling = beta/(1-gamma)=3.0 << win_bonus=10,
+# so no non-winning trajectory can out-rank a win: shaped argmax == true 100%-fill optimum.
+#
+# Phase A (this file):
+#   python train.py --training coverage_10x10_v10 \
+#     --init-from runs/0602_12_coverage-10x10-transfer \
+#     training.hypothesis_slug=coverage-10x10-cycle
+# Phase B (refine, optional — anneal to zero, recover shortcuts) after Phase A plateaus:
+#   clone with cycle_beta: 0.0, hypothesis_slug: coverage-10x10-cycle-refine, --init-from the Phase A run.
+# Clean control (isolates shaping vs continued-training):
+#   ...--init-from runs/0602_12_coverage-10x10-transfer training.cycle_beta=0.0 \
+#     training.hypothesis_slug=coverage-10x10-cycle-ctrl
+#
+# Cloned from coverage_10x10_v8.yaml; ONLY the reward block + best_metric changed.
+game:
+  rows: 10
+  cols: 10
+model:
+  arch: hybrid
+  obs_type: hybrid
+  hidden_size: 128
+  num_layers: 2           # held across the curriculum; channels[-1]=32 fixed for transfer
+  activation: relu
+  adaptive_pool_size: 4   # size-agnostic encoder; identical arch to v9 so warm-start loads strict
+ppo:
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  clip_coef: 0.2
+  ent_coef: 0.03          # keep exploration up to avoid premature collapse
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+training:
+  num_envs: 256
+  num_steps: 128
+  num_updates: 0          # unlimited; run until plateau (external coverage watcher) or time backstop
+  seed: 1
+  max_hours: 10.0
+  plateau_steps: 1000000
+  plateau_threshold: 0.1
+  # --- Coverage-oriented reward (D14), held from v6/v7/v8/v9 ---
+  dist_shaping_alpha: 0.0
+  step_penalty: 0.0
+  win_bonus: 10.0
+  # --- v10 Hamiltonian cycle-alignment shaping (NEW) ---
+  cycle_beta: 0.03        # +beta for the on-cycle successor move, 0 otherwise (bonus-only, never penalized).
+                          # farm ceiling = beta/(1-gamma)=3.0 << win_bonus=10. 0.0 disables (Phase B refine / control).
+  best_metric: coverage   # select best.pt on avg_coverage (shaped avg_return is NOT comparable to v9).
+  max_memory_pct: 98
+  hypothesis_slug: coverage-10x10-cycle
+checkpointing:
+  num_checkpoints: 5
+experiments_dir: runs
+video:
+  num_videos: 5
+  final_episodes: 3
+  render_cell_size: 100
+  fps: 30
