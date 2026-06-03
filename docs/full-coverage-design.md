@@ -246,15 +246,15 @@ across the curriculum.
     boundary (open-Q#1, answered).** Residual failure = **self-trapping** (body deaths ~47% in both);
     wall-avoidance transfers perfectly (wall deaths 37.5%→5.4%). Reactive PPO, even warm-started,
     cannot learn the long-horizon planning to avoid boxing itself in.
-- **Phase 2** (Hamiltonian/spiral prior): **built (v10), run pending.** Open-Q#3 resolved to the
-  **shaping** option (D19): a reward-only, bonus-only cycle-alignment term (`cycle_beta=0.03`),
-  warm-started from the v9 transfer policy at 10×10, targeting the self-trap failure (body deaths
-  ~47%). Reward-only keeps the obs 4-channel so the v9 strict warm-start loads; gated by
-  `scripts/verify_cycle_shaping.py` (8/8) + a smoke launch. Measure on `death/body_pct`,
-  `avg_coverage`, win-rate (reward-invariant) vs the v9 baseline (78% cov / 48% win); `avg_return`
-  is shaped and not comparable. A `cycle_beta=0.0` warm-restart control isolates shaping gain from
-  continued-training gain. Launch:
-  `python train.py --training coverage_10x10_v10 --init-from runs/0602_12_coverage-10x10-transfer
-  training.hypothesis_slug=coverage-10x10-cycle`.
+- **Phase 2** (Hamiltonian/spiral prior): **opened — v10 run done (`runs/0603_01_coverage-10x10-cycle`,
+  2026-06-03).** Open-Q#3 resolved to the **shaping** option (D19): reward-only, bonus-only
+  cycle-alignment (`cycle_beta=0.03`), warm-started from the v9 transfer policy at 10×10. **Result:
+  the prior works on its target** — body/self-trap deaths **46.9% → 37.4%**, win rate **47.7% →
+  58.1%**, peak coverage 0.984, and **0% timeout** (no cycle-walking pathology). Coverage plateau rose
+  only modestly (0.782 → **0.807**); body deaths remain the #1 failure, so the wall is dented, not
+  removed. **Confound:** v10 warm-restarts with a fresh optimizer, so part of the gain may be
+  continued-training/re-exploration, not shaping — the `cycle_beta=0.0` warm-restart control
+  (`training.cycle_beta=0.0`, same `--init-from`) is the load-bearing next experiment. Full writeup:
+  [v10-cycle-shaping-10x10.md](iterations/v10-cycle-shaping-10x10.md).
 </content>
 </invoke>
