@@ -398,7 +398,7 @@ def main() -> None:
 
     if cfg.model.arch == "cnn" and cfg.model.obs_type != "grid":
         raise ValueError("CNN architecture requires obs_type='grid'")
-    if cfg.model.arch == "hybrid" and cfg.model.obs_type != "hybrid":
+    if cfg.model.arch in ("hybrid", "hybrid_asym") and cfg.model.obs_type != "hybrid":
         raise ValueError("Hybrid architecture requires obs_type='hybrid'")
     if cfg.model.num_layers < 1:
         raise ValueError("num_layers must be >= 1")
@@ -506,11 +506,20 @@ def main() -> None:
             )
             # strict load: a shape mismatch (e.g. warm-starting across grid sizes
             # without a size-agnostic encoder) MUST fail visibly, not silently.
-            agent.load_state_dict(state)
-            print(
-                f"Warm-started agent weights from {init_ckpt} "
-                f"(fresh optimizer, start_update=0, best_avg_return reset)"
-            )
+            if hasattr(agent, "load_actor_weights"):
+                # Asymmetric agent: the checkpoint is a shared-trunk HybridActorCritic,
+                # so load it into the actor pathway only; the privileged critic stays fresh.
+                agent.load_actor_weights(state)
+                print(
+                    f"Warm-started ACTOR weights from {init_ckpt} "
+                    f"(asymmetric critic fresh, fresh optimizer, start_update=0)"
+                )
+            else:
+                agent.load_state_dict(state)
+                print(
+                    f"Warm-started agent weights from {init_ckpt} "
+                    f"(fresh optimizer, start_update=0, best_avg_return reset)"
+                )
 
         is_hybrid = cfg.model.obs_type == "hybrid"
 

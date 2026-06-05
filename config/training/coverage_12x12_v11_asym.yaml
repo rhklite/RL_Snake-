@@ -1,0 +1,58 @@
+# v11 / Phase 2 — 12x12 ASYMMETRIC actor-critic (privileged critic).
+# The critic gets a static Hamiltonian cycle-phase channel (canonical traversal order)
+# so the VALUE function can see the structure that distinguishes "heading into a self-trap";
+# the ACTOR sees only the unchanged 4-channel hybrid obs, so the policy is deployable
+# WITHOUT computing the cycle and warm-starts tensor-for-tensor from a shared-trunk checkpoint.
+#
+# Controlled vs the 12x12 beta=0.08 baseline (runs/0604_23_coverage-12x12-cycle-b08): the ONLY
+# change is the critic (shared -> privileged asymmetric). cycle_beta=0.08 is held identical so
+# the comparison isolates the critic's marginal contribution. A later v12 (cycle_beta=0.0 +
+# asymmetric) would test escaping the reward ceiling entirely.
+#
+# Launch (warm-start ACTOR from the 10x10 beta=0.08 policy, same source as the baseline):
+#   python train.py --training coverage_12x12_v11_asym \
+#     --init-from runs/0604_15_coverage-10x10-cycle-b08 \
+#     training.hypothesis_slug=coverage-12x12-asym
+game:
+  rows: 12
+  cols: 12
+model:
+  arch: hybrid_asym       # asymmetric actor-critic (privileged critic)
+  obs_type: hybrid
+  hidden_size: 128
+  num_layers: 2
+  activation: relu
+  adaptive_pool_size: 4   # 12x12 pre-pool=12>=4; actor warm-starts strict from 10x10
+ppo:
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  clip_coef: 0.2
+  ent_coef: 0.03
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+training:
+  num_envs: 256
+  num_steps: 128
+  num_updates: 0
+  seed: 1
+  max_hours: 10.0
+  plateau_steps: 1000000
+  plateau_threshold: 0.1
+  dist_shaping_alpha: 0.0
+  step_penalty: 0.0
+  win_bonus: 10.0
+  cycle_beta: 0.08        # held identical to the baseline (env reward bonus); the variable is the critic
+  best_metric: coverage
+  max_memory_pct: 98
+  hypothesis_slug: coverage-12x12-asym
+checkpointing:
+  num_checkpoints: 5
+experiments_dir: runs
+video:
+  num_videos: 5
+  final_episodes: 3
+  render_cell_size: 100
+  fps: 30

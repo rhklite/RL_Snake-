@@ -83,6 +83,36 @@ def _comb_order_rows_even(rows: int, cols: int) -> list[tuple[int, int]]:
     return order
 
 
+def build_cycle_order(rows: int, cols: int) -> list[tuple[int, int]]:
+    """Cell visit order along the comb Hamiltonian cycle. Raises on both-odd grids."""
+    if rows % 2 == 0:
+        order = _comb_order_rows_even(rows, cols)
+    elif cols % 2 == 0:
+        order = [(y, x) for (x, y) in _comb_order_rows_even(cols, rows)]
+    else:
+        raise ValueError(
+            f"No Hamiltonian cycle for both-odd grid {rows}x{cols} (area is odd)"
+        )
+    n = rows * cols
+    assert len(order) == n and len(set(order)) == n, "cycle order is not a permutation"
+    return order
+
+
+def build_cycle_phase(rows: int, cols: int) -> np.ndarray:
+    """Normalized position (0 <= p < 1) of each cell along the comb Hamiltonian cycle.
+
+    A static, grid-only field used as a privileged CRITIC input in the asymmetric
+    actor-critic: it hands the value function the canonical traversal order so it can
+    value "is this state heading into a self-trap" without the actor ever seeing it.
+    """
+    order = build_cycle_order(rows, cols)
+    n = rows * cols
+    phase = np.zeros((rows, cols), dtype=np.float32)
+    for i, (x, y) in enumerate(order):
+        phase[y, x] = i / n
+    return phase
+
+
 def build_cycle_succ(rows: int, cols: int) -> np.ndarray:
     """Successor-direction field for a comb Hamiltonian cycle on an even grid.
 
@@ -92,17 +122,8 @@ def build_cycle_succ(rows: int, cols: int) -> np.ndarray:
     Self-asserts validity (permutation, 4-adjacency, closed tour) and fails
     visibly on any violation.
     """
-    if rows % 2 == 0:
-        order = _comb_order_rows_even(rows, cols)
-    elif cols % 2 == 0:
-        order = [(y, x) for (x, y) in _comb_order_rows_even(cols, rows)]
-    else:
-        raise ValueError(
-            f"No Hamiltonian cycle for both-odd grid {rows}x{cols} (area is odd)"
-        )
-
+    order = build_cycle_order(rows, cols)
     n = rows * cols
-    assert len(order) == n and len(set(order)) == n, "cycle order is not a permutation"
 
     succ = np.full((rows, cols), -1, dtype=np.int8)
     for i, (x, y) in enumerate(order):
