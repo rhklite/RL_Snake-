@@ -160,12 +160,27 @@ def make_env(rank: int, cfg: DictConfig) -> callable:
             step_penalty=cfg.training.get("step_penalty", -0.025),
             win_bonus=cfg.training.get("win_bonus", 0.0),
             cycle_beta=cfg.training.get("cycle_beta", 0.0),
+            mask_mode=cfg.training.get("mask_mode", "none"),
         )
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env.reset(seed=cfg.training.seed + rank)
         return env
 
     return _init
+
+
+def _gather_action_masks(envs: gym.vector.VectorEnv, device: torch.device) -> torch.Tensor:
+    """Stack per-env legal-action masks into a bool ``(num_envs, 4)`` tensor.
+
+    Reads each SyncVectorEnv sub-env's live state via ``legal_action_mask()``. The
+    mask is for the env's CURRENT obs, so it aligns with ``next_obs`` after a reset
+    or step (auto-reset envs return the reset state's mask).
+    """
+    return torch.as_tensor(
+        np.stack([env.unwrapped.legal_action_mask() for env in envs.envs]),
+        dtype=torch.bool,
+        device=device,
+    )
 
 
 def _build_experiment_name(cfg: DictConfig) -> str:
@@ -523,6 +538,14 @@ def main() -> None:
 
         is_hybrid = cfg.model.obs_type == "hybrid"
 
+        mask_mode = cfg.training.get("mask_mode", "none")
+        use_mask = mask_mode != "none"
+        if use_mask and not is_hybrid:
+            raise ValueError(
+                f"mask_mode={mask_mode!r} currently requires obs_type='hybrid' "
+                f"(action masking is wired through HybridActorCritic only)."
+            )
+
         if is_hybrid:
             rows, cols = cfg.game.rows, cfg.game.cols
             grid_channels = envs.single_observation_space["grid"].shape[0]
@@ -551,6 +574,7 @@ def main() -> None:
         rewards = torch.zeros((num_steps, num_envs), device=device)
         dones = torch.zeros((num_steps, num_envs), device=device)
         values = torch.zeros((num_steps, num_envs), device=device)
+        masks = torch.ones((num_steps, num_envs, 4), dtype=torch.bool, device=device)
 
         next_obs_np, _ = envs.reset(seed=cfg.training.seed)
         if is_hybrid:
@@ -564,6 +588,7 @@ def main() -> None:
         else:
             next_obs = _obs_to_device(next_obs_np, cfg, device)
         next_done = torch.zeros(num_envs, device=device)
+        next_mask = _gather_action_masks(envs, device) if use_mask else None
 
         episode_returns: list[float] = []
         episode_lengths: list[int] = []
@@ -632,9 +657,14 @@ def main() -> None:
                 else:
                     obs[step] = next_obs
                 dones[step] = next_done
+                if use_mask:
+                    masks[step] = next_mask
 
                 with torch.no_grad():
-                    action, logprob, _, value = agent.get_action_and_value(next_obs)
+                    mask_kw = {"action_mask": next_mask} if use_mask else {}
+                    action, logprob, _, value = agent.get_action_and_value(
+                        next_obs, **mask_kw
+                    )
                 actions[step] = action
                 logprobs[step] = logprob
                 values[step] = value.flatten()
@@ -656,6 +686,9 @@ def main() -> None:
                 else:
                     next_obs = _obs_to_device(next_obs_np, cfg, device)
                 next_done = torch.tensor(done_np, dtype=torch.float32, device=device)
+                if use_mask:
+                    # Post-step (post-autoreset) mask for next_obs; stored next loop iter.
+                    next_mask = _gather_action_masks(envs, device)
 
                 if "_episode" in infos:
                     ep_mask = infos["_episode"]
@@ -713,6 +746,7 @@ def main() -> None:
             b_advantages = advantages.reshape(-1)
             b_returns = returns.reshape(-1)
             b_values = values.reshape(-1)  # noqa: F841
+            b_masks = masks.reshape(-1, 4) if use_mask else None
 
             b_inds = np.arange(batch_size)
             clipfracs = []
@@ -731,8 +765,11 @@ def main() -> None:
                     else:
                         mb_obs = b_obs[mb_inds].float()
 
+                    mb_mask_kw = (
+                        {"action_mask": b_masks[mb_inds]} if use_mask else {}
+                    )
                     _, newlogprob, entropy, newvalue = agent.get_action_and_value(
-                        mb_obs, b_actions[mb_inds]
+                        mb_obs, b_actions[mb_inds], **mb_mask_kw
                     )
                     logratio = newlogprob - b_logprobs[mb_inds]
                     ratio = logratio.exp()

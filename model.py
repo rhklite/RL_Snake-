@@ -251,9 +251,14 @@ class HybridActorCritic(nn.Module):
         self,
         obs: dict[str, torch.Tensor],
         action: torch.Tensor | None = None,
+        action_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         features = self._encode(obs)
         logits = self.actor(features)
+        if action_mask is not None:
+            # Illegal actions -> -inf logit (prob 0). Must be passed identically in
+            # rollout AND the PPO recompute or the importance ratio is wrong.
+            logits = logits.masked_fill(~action_mask, float("-inf"))
         dist = Categorical(logits=logits)
         if action is None:
             action = dist.sample()

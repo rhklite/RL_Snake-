@@ -195,9 +195,11 @@ class SnakeEnv(gym.Env):
         step_penalty: float = -0.025,  # per-step reward; ~0 for coverage goal
         win_bonus: float = 0.0,  # terminal reward for filling the whole grid
         cycle_beta: float = 0.0,  # +beta for the on-cycle move, 0 otherwise; 0 disables
+        mask_mode: str = "none",  # action masking: "none" | "safety" | "cycle"
     ) -> None:
         super().__init__()
         assert obs_type in ("grid", "features", "hybrid")
+        assert mask_mode in ("none", "safety", "cycle")
         self.rows = rows
         self.cols = cols
         self.obs_type = obs_type
@@ -208,9 +210,15 @@ class SnakeEnv(gym.Env):
         self.step_penalty = step_penalty
         self.win_bonus = win_bonus
         self.cycle_beta = cycle_beta
+        self.mask_mode = mask_mode
         # Precompute the Hamiltonian cycle successor field once (depends only on
-        # grid size). None when shaping is disabled, so behavior is unchanged.
-        self._cycle_succ = build_cycle_succ(rows, cols) if cycle_beta != 0.0 else None
+        # grid size). None when neither shaping nor cycle-masking needs it, so
+        # default behavior is unchanged.
+        self._cycle_succ = (
+            build_cycle_succ(rows, cols)
+            if cycle_beta != 0.0 or mask_mode == "cycle"
+            else None
+        )
 
         self.action_space = spaces.Discrete(4)
         if obs_type == "grid":
@@ -254,6 +262,11 @@ class SnakeEnv(gym.Env):
         mid_r, mid_c = self.rows // 2, self.cols // 2
         self._snake = [np.array([mid_c, mid_r])]
         self._direction = RIGHT
+        if self.mask_mode == "cycle":
+            # Align the initial heading to the cycle successor at the start cell so
+            # the opposite-guard never derails the first (cycle-masked) action; after
+            # the first on-cycle step the successor is never the reverse of heading.
+            self._direction = int(self._cycle_succ[mid_r, mid_c])
         self._score = 0
         self._steps = 0
         self._cause_of_death = None
@@ -375,6 +388,52 @@ class SnakeEnv(gym.Env):
         if x < 0 or x >= self.cols or y < 0 or y >= self.rows:
             return True
         return any(np.array_equal(pos, seg) for seg in self._snake)
+
+    def legal_action_mask(self) -> np.ndarray:
+        """Boolean ``(4,)`` mask over actions {UP, DOWN, LEFT, RIGHT}; True = allowed.
+
+        * ``"none"``   – all actions allowed (identity; default behavior).
+        * ``"safety"`` – mask any action whose **resolved** move (after the
+          opposite-direction guard in :meth:`step`) steps into a wall or an
+          occupied cell, i.e. exactly the moves the env scores as a death this
+          step. If *every* action is fatal (an unavoidable trap), return
+          all-allowed so the policy never faces an all-masked (NaN) distribution.
+        * ``"cycle"``  – allow only the Hamiltonian-cycle successor at the head.
+
+        The occupancy set includes the tail, matching :meth:`_is_collision` at
+        collision-check time (the tail is popped only after the check), so the
+        mask is consistent with the env's actual lethality.
+        """
+        mask = np.ones(4, dtype=bool)
+        if self.mask_mode == "none":
+            return mask
+
+        head = self._snake[0]
+        hx, hy = int(head[0]), int(head[1])
+
+        if self.mask_mode == "cycle":
+            mask[:] = False
+            mask[int(self._cycle_succ[hy, hx])] = True
+            return mask
+
+        # safety
+        occupied = {(int(s[0]), int(s[1])) for s in self._snake}
+        opp = OPPOSITE.get(self._direction, -1)
+        for a in range(4):
+            resolved = self._direction if a == opp else a
+            dx, dy = DIRECTION_VECTORS[resolved]
+            nx, ny = hx + int(dx), hy + int(dy)
+            fatal = (
+                nx < 0
+                or nx >= self.cols
+                or ny < 0
+                or ny >= self.rows
+                or (nx, ny) in occupied
+            )
+            mask[a] = not fatal
+        if not mask.any():
+            mask[:] = True  # unavoidable death: don't emit an all-(-inf) row
+        return mask
 
     def _place_food(self) -> None:
         occupied = {tuple(s) for s in self._snake}
