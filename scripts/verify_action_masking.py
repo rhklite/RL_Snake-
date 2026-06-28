@@ -211,6 +211,45 @@ def check_rollout_update_consistency() -> None:
     )
 
 
+def check_masked_backward_finite_grads() -> None:
+    """The BACKWARD pass through the masked dist yields finite grads (catches -inf NaN).
+
+    The entropy term's gradient is the trap: with a -inf fill, masked actions compute
+    0 * log(0) = 0 * -inf = NaN, which poisons the weights after some updates. Stress it
+    with the worst case (every row exactly ONE legal action) and the entropy term in the
+    loss, exactly as the PPO update does.
+    """
+    import torch
+
+    from model import make_agent
+
+    rows = cols = 12
+    for trial in range(5):
+        agent = make_agent(
+            arch="hybrid", obs_type="hybrid", rows=rows, cols=cols,
+            hidden_size=128, num_layers=2, activation="relu", adaptive_pool_size=4,
+        )
+        rng = np.random.default_rng(trial)
+        b = 512
+        obs = {"grid": torch.rand(b, 4, rows, cols), "food": torch.rand(b, 2) * 2 - 1}
+        # Worst case: exactly one legal action per row (max entropy-gradient stress).
+        only = torch.from_numpy(rng.integers(0, 4, size=b))
+        m = torch.zeros(b, 4, dtype=torch.bool)
+        m[torch.arange(b), only] = True
+
+        action, logprob, entropy, value = agent.get_action_and_value(obs, action_mask=m)
+        # PPO-shaped loss: policy term (logprob) + entropy bonus + value — all backprop.
+        loss = -logprob.mean() - 0.03 * entropy.mean() + 0.5 * value.mean()
+        assert torch.isfinite(loss), f"trial {trial}: loss is non-finite"
+        loss.backward()
+        for name, p in agent.named_parameters():
+            if p.grad is not None:
+                assert torch.isfinite(p.grad).all(), (
+                    f"trial {trial}: non-finite grad in {name} "
+                    f"(the -inf-mask NaN-gradient bug)"
+                )
+
+
 def check_warm_start_strict_load() -> None:
     """The 16x16 (C2) checkpoint loads strict into the unchanged hybrid agent at 20x20."""
     ckpt = (
@@ -242,6 +281,7 @@ def main() -> None:
         ("cycle mask: single legal action, fills to win", check_cycle_mask_single_and_fills),
         ("model: finite entropy/logprob, legal-only samples", check_model_masked_distribution),
         ("rollout/update logprob consistency (ratio=1)", check_rollout_update_consistency),
+        ("masked BACKWARD finite grads (single-legal-action)", check_masked_backward_finite_grads),
         ("warm-start strict load (16x16 -> 20x20 agent)", check_warm_start_strict_load),
     ]
     for name, fn in checks:

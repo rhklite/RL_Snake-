@@ -9,6 +9,12 @@ from torch.distributions import Categorical
 
 from snake_env import build_cycle_phase
 
+# Fill value for illegal-action logits. A large FINITE negative (not -inf): exp() still
+# underflows to 0 probability, but the entropy/log_prob BACKWARD stays finite. With -inf,
+# masked entries hit 0 * log(0) = 0 * -inf = NaN gradients (intermittent, data-dependent),
+# which silently poisons the weights after many updates. -1e8 avoids it entirely.
+_MASKED_LOGIT = -1e8
+
 
 def layer_init(
     layer: nn.Module, std: float = np.sqrt(2), bias: float = 0.0
@@ -256,9 +262,9 @@ class HybridActorCritic(nn.Module):
         features = self._encode(obs)
         logits = self.actor(features)
         if action_mask is not None:
-            # Illegal actions -> -inf logit (prob 0). Must be passed identically in
-            # rollout AND the PPO recompute or the importance ratio is wrong.
-            logits = logits.masked_fill(~action_mask, float("-inf"))
+            # Illegal actions -> large finite negative logit (prob ~0, finite gradient).
+            # Must be passed identically in rollout AND the PPO recompute or the ratio is wrong.
+            logits = logits.masked_fill(~action_mask, _MASKED_LOGIT)
         dist = Categorical(logits=logits)
         if action is None:
             action = dist.sample()

@@ -614,6 +614,7 @@ def main() -> None:
         ckpt_interval = cfg.checkpointing.get("interval", 500)
         video_interval = cfg.video.get("interval", 1000)
         update = start_update
+        nonfinite_grad_skips = 0  # cumulative PPO minibatch steps skipped on NaN/inf grad
         while True:
             update += 1
             if not unlimited and update > num_updates:
@@ -805,7 +806,16 @@ def main() -> None:
 
                     optimizer.zero_grad()
                     loss.backward()
-                    nn.utils.clip_grad_norm_(agent.parameters(), cfg.ppo.max_grad_norm)
+                    grad_norm = nn.utils.clip_grad_norm_(
+                        agent.parameters(), cfg.ppo.max_grad_norm
+                    )
+                    if not torch.isfinite(grad_norm):
+                        # A non-finite grad (NaN/inf) would poison every weight on step()
+                        # and produce all-NaN logits next forward. Skip this minibatch
+                        # instead; count it so a recurrence is visible, not silent.
+                        optimizer.zero_grad(set_to_none=True)
+                        nonfinite_grad_skips += 1
+                        continue
                     optimizer.step()
 
             # --- Logging ---
@@ -818,6 +828,7 @@ def main() -> None:
                 "value_loss": v_loss.item(),
                 "entropy": entropy_loss.item(),
                 "clip_frac": float(np.mean(clipfracs)),
+                "grad_skips": nonfinite_grad_skips,
             }
             if episode_returns:
                 recent_n = min(20, len(episode_returns))
