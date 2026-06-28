@@ -648,7 +648,9 @@ def main() -> None:
             if not unlimited and update > num_updates:
                 break
             if anneal_lr and lr_anneal_updates > 0:
-                frac = max(0.0, 1.0 - (update - 1 - start_update) / lr_anneal_updates)
+                # absolute update (NOT relative to start_update) so the schedule continues
+                # correctly across --resume instead of restarting at base LR.
+                frac = max(0.0, 1.0 - (update - 1) / lr_anneal_updates)
                 for pg in optimizer.param_groups:
                     pg["lr"] = base_lr * frac
             # --- Early stopping: time limit ---
