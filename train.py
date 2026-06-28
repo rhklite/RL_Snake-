@@ -169,18 +169,18 @@ def make_env(rank: int, cfg: DictConfig) -> callable:
     return _init
 
 
-def _gather_action_masks(envs: gym.vector.VectorEnv, device: torch.device) -> torch.Tensor:
-    """Stack per-env legal-action masks into a bool ``(num_envs, 4)`` tensor.
+def _gather_action_masks(envs, device: torch.device) -> torch.Tensor:
+    """Per-env legal-action masks as a bool ``(num_envs, 4)`` tensor, for the CURRENT obs.
 
-    Reads each SyncVectorEnv sub-env's live state via ``legal_action_mask()``. The
-    mask is for the env's CURRENT obs, so it aligns with ``next_obs`` after a reset
-    or step (auto-reset envs return the reset state's mask).
+    Works for both the batched ``VectorizedSnakeEnv`` (one array op) and a
+    ``SyncVectorEnv`` (stack each sub-env's ``legal_action_mask()``). Aligns with
+    ``next_obs`` after a reset/step (auto-reset envs return the reset state's mask).
     """
-    return torch.as_tensor(
-        np.stack([env.unwrapped.legal_action_mask() for env in envs.envs]),
-        dtype=torch.bool,
-        device=device,
-    )
+    if hasattr(envs, "legal_action_mask"):  # batched env exposes it directly
+        m = envs.legal_action_mask()
+    else:
+        m = np.stack([env.unwrapped.legal_action_mask() for env in envs.envs])
+    return torch.as_tensor(m, dtype=torch.bool, device=device)
 
 
 def _build_experiment_name(cfg: DictConfig) -> str:
@@ -450,9 +450,27 @@ def main() -> None:
         np.random.seed(cfg.training.seed)
         torch.manual_seed(cfg.training.seed)
 
-        envs = gym.vector.SyncVectorEnv(
-            [make_env(i, cfg) for i in range(cfg.training.num_envs)]
-        )
+        use_vec_env = cfg.training.get("vectorized_env", False)
+        if use_vec_env:
+            if cfg.model.obs_type != "hybrid":
+                raise ValueError("vectorized_env requires obs_type='hybrid'")
+            from vec_snake_env import VectorizedSnakeEnv
+
+            envs = VectorizedSnakeEnv(
+                num_envs=cfg.training.num_envs,
+                rows=cfg.game.rows,
+                cols=cfg.game.cols,
+                max_steps_factor=200,  # SnakeEnv default; make_env doesn't override it
+                step_penalty=cfg.training.get("step_penalty", -0.025),
+                win_bonus=cfg.training.get("win_bonus", 0.0),
+                cycle_beta=cfg.training.get("cycle_beta", 0.0),
+                mask_mode=cfg.training.get("mask_mode", "none"),
+                seed=cfg.training.seed,
+            )
+        else:
+            envs = gym.vector.SyncVectorEnv(
+                [make_env(i, cfg) for i in range(cfg.training.num_envs)]
+            )
 
         agent = make_agent(
             arch=cfg.model.arch,
@@ -548,7 +566,10 @@ def main() -> None:
 
         if is_hybrid:
             rows, cols = cfg.game.rows, cfg.game.cols
-            grid_channels = envs.single_observation_space["grid"].shape[0]
+            grid_channels = (
+                4 if use_vec_env
+                else envs.single_observation_space["grid"].shape[0]
+            )
             obs_grid = torch.zeros(
                 (num_steps, num_envs, grid_channels, rows, cols),
                 dtype=torch.float32,

@@ -53,6 +53,7 @@ training:
   cycle_beta: 0.15        # same prior as v14/D2; the ONLY change vs that control is mask_mode below
   # --- v15 action masking (NEW) ---
   mask_mode: safety       # "none" | "safety" (mask instant wall/body deaths) | "cycle" (force on-cycle)
+  vectorized_env: true    # use the batched VectorizedSnakeEnv (equiv to SnakeEnv, ~5x faster env)
   best_metric: coverage   # select best.pt on avg_coverage (shaped avg_return not comparable across betas)
   max_memory_pct: 98
   hypothesis_slug: coverage-20x20-mask-safety
