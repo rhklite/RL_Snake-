@@ -636,10 +636,21 @@ def main() -> None:
         video_interval = cfg.video.get("interval", 1000)
         update = start_update
         nonfinite_grad_skips = 0  # cumulative PPO minibatch steps skipped on NaN/inf grad
+        # LR annealing (v16 stability lever): linearly decay LR base->0 over
+        # lr_anneal_updates to damp the late peak->decay of action-masked runs. Off by
+        # default (lr_anneal_updates=0). Works for unlimited runs (fixed horizon, not
+        # tied to num_updates); LR floors at 0 (frozen) past the horizon.
+        anneal_lr = cfg.ppo.get("anneal_lr", False)
+        lr_anneal_updates = cfg.ppo.get("lr_anneal_updates", 0)
+        base_lr = cfg.ppo.learning_rate
         while True:
             update += 1
             if not unlimited and update > num_updates:
                 break
+            if anneal_lr and lr_anneal_updates > 0:
+                frac = max(0.0, 1.0 - (update - 1 - start_update) / lr_anneal_updates)
+                for pg in optimizer.param_groups:
+                    pg["lr"] = base_lr * frac
             # --- Early stopping: time limit ---
             elapsed_hours = (time.monotonic() - train_start) / 3600
             if cfg.training.max_hours > 0 and elapsed_hours >= cfg.training.max_hours:
@@ -850,6 +861,7 @@ def main() -> None:
                 "entropy": entropy_loss.item(),
                 "clip_frac": float(np.mean(clipfracs)),
                 "grad_skips": nonfinite_grad_skips,
+                "lr": optimizer.param_groups[0]["lr"],
             }
             if episode_returns:
                 recent_n = min(20, len(episode_returns))

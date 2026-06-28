@@ -1,0 +1,64 @@
+# v16 / Phase 2 — 20x20 safety action-masking + LR ANNEAL (stability lever).
+# v15 (safety-mask) BEAT v14: 2-seed peak roll-cov 0.716 / 0.756 (vs v14's 0.645), win 13-18%.
+# BUT both seeds DECAY from the peak late (seed-1 collapsed 0.716->0.18 via timeout; seed-2
+# gentler 0.756->0.47 via body). "Decays from peak" is the consistent v15 gap -> v16 challenge.
+#
+# v16 = v15 + ONE change: linearly anneal the learning rate base->0 over lr_anneal_updates,
+# the standard PPO fix for peak-then-decay. LR is high early (fast climb to the ~upд350-600
+# peak), then progressively freezes — damping the late divergence so the plateau holds near
+# the peak instead of decaying. best_metric=coverage still preserves the true peak in best.pt.
+#
+# Launch (single-variable A/B vs v15 seed-1, identical init):
+#   python train.py --training coverage_20x20_v16 \
+#     --init-from runs/0610_22_coverage-16x16-b15-w20 \
+#     training.hypothesis_slug=coverage-20x20-mask-anneal
+#
+# Cloned from coverage_20x20_v15.yaml; only ppo.anneal_lr + lr_anneal_updates added.
+game:
+  rows: 20
+  cols: 20
+model:
+  arch: hybrid
+  obs_type: hybrid
+  hidden_size: 128
+  num_layers: 2
+  activation: relu
+  adaptive_pool_size: 4
+ppo:
+  learning_rate: 0.00025
+  gamma: 0.99
+  gae_lambda: 0.95
+  num_minibatches: 4
+  update_epochs: 4
+  clip_coef: 0.2
+  ent_coef: 0.03
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  # --- v16 stability lever (NEW) ---
+  anneal_lr: true          # linearly decay LR base->0 over lr_anneal_updates, then freeze (0)
+  lr_anneal_updates: 1000  # horizon: full base LR @upд0 -> 0 @upд1000 (freezes shortly past the v15 peak)
+training:
+  num_envs: 256
+  num_steps: 128
+  num_updates: 0
+  seed: 1
+  max_hours: 1.5           # backstop (watcher unreliable); LR is ~0 by upд1000 so the plateau is frozen
+  plateau_steps: 1000000
+  plateau_threshold: 0.1
+  dist_shaping_alpha: 0.0
+  step_penalty: 0.0
+  win_bonus: 20.0
+  cycle_beta: 0.15
+  mask_mode: safety
+  vectorized_env: true
+  best_metric: coverage
+  max_memory_pct: 98
+  hypothesis_slug: coverage-20x20-mask-anneal
+checkpointing:
+  num_checkpoints: 5
+experiments_dir: runs
+video:
+  num_videos: 5
+  final_episodes: 3
+  render_cell_size: 100
+  fps: 30
