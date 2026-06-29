@@ -5,9 +5,9 @@ Each version = one coherent hypothesis test (a run, or a focused decision applie
 This is the canonical history; the per-version files hold full detail.
 
 > **Start here:** [HISTORY.md](HISTORY.md) is the consolidated **challenge → test → solution → gap**
-> chain across *all* iterations (v0→v15), where each gap motivates the next. This README is the
+> chain across *all* iterations (v0→v16), where each gap motivates the next. This README is the
 > table-of-contents + open-questions ledger; HISTORY.md is the narrative spine. v1–v10 also have
-> standalone per-version files; v11–v15 detail lives in HISTORY.md.
+> standalone per-version files; v11–v16 detail lives in HISTORY.md.
 >
 > **How to use this:** before starting a new experiment, read the latest version file and the
 > [open questions](#open-questions-carried-forward). When you finish a run, add a new `vN+1`
@@ -33,6 +33,7 @@ This is the canonical history; the per-version files hold full detail.
 | v13 *([HISTORY](HISTORY.md))* | 2026-06-10 | 10×10 | Co-scale **β=0.15 / win_bonus=20**; probe β=0.18 | **success** | **0.939** (best 10×10); β=0.18 unstable → lock β=0.15/win=20 |
 | v14 *([HISTORY](HISTORY.md))* | 2026-06-10→12 | 12→20² | Scale locked recipe up the ladder (A/C/D) | **wall** | 12²=0.903, 16²=0.82, **20²=0.645 (82% body)** — self-avoidance collapses |
 | v15 *([HISTORY](HISTORY.md))* | 2026-06-28 | 20×20 | **Action-masking** the action space (safety + cycle), open-Q#3 opt 2 | **success (peak)** | safety **0.716 / 18% win** beats v14's 0.645; unstable late (→timeout 34%); cycle timeout-defeated 0.21 |
+| v16 *([HISTORY](HISTORY.md))* | 2026-06-28 | 20×20 | Safety-mask + **LR anneal** base→0 (stability lever) | **success (stable)** | **0.765 peak, HOLDS 0.728, win 27%** — fixes v15's decay; best stable result |
 
 **Trajectory:** food-seeking optimization (v1–v5) plateaued at ~10% grid fill on 32×32 no matter
 the observation richness — the bottleneck was the *objective*, not the network. v6 reframed the
@@ -45,8 +46,9 @@ warm-start: ~3× faster convergence and a higher ceiling (70% vs 56%). v9 found 
 v12–v13 then **escalated the β prior** — β=0.08 → 0.890, and **β=0.15/win_bonus=20 → 0.939** at 10×10,
 the locked recipe. v14 scaled it up the ladder (12²=0.903, 16²=0.82) until it **hit a wall at 20×20
 (0.645, 82% self-trap deaths)**; v15 then **broke the wall with action-masking** — masking off wall/body
-suicides (open-Q#3 opt 2) reached **0.716 peak / 18% win**, beating v14, though it destabilizes late
-(failure shifts body→timeout) — the current frontier. Full chain: [HISTORY.md](HISTORY.md); forward
+suicides (open-Q#3 opt 2) reached **0.716/0.756 peak (2-seed) / 13–18% win**, beating v14, though it
+decays from the peak late; v16 **fixed the decay with LR annealing** — a *stable* **0.765 peak holding
+0.728, win 27%**, the current frontier. Full chain: [HISTORY.md](HISTORY.md); forward
 plan: [full-coverage-design.md](../full-coverage-design.md).
 
 ## v0 — pre-history (not numbered)

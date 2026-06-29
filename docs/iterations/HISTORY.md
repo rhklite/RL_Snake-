@@ -33,7 +33,8 @@
 | v12 | 06-04→05 | 10²/12² | β=0.03 inert — is the *prior* dead or just too weak? | escalate β 0.03→0.08; 3-seed de-risk | **β registers** — 10×10 **0.890±0.009** (3 seeds); β=0.08 @12×12 ceilings ~0.80 | dose-response real but β=0.08 won't scale; how high can the dose go? |
 | v13 | 06-10 | 10² | how far does dose-response go, stably? | co-scale **β=0.15 / win_bonus=20**; probe β=0.18 | **0.939 @10×10** (best ever); β=0.18 peaks 0.955 but **decays** | β=0.15/win=20 = the **locked stable recipe**; does it climb the grid ladder? |
 | v14 | 06-10→12 | 12→16→20² | scale the locked recipe up | curriculum ladder A/C/D at β=0.15/win=20 | 12²=**0.903**, 16²=**0.82**, 20²=**0.645** (82% body) | **WALL at 20×20 (400 cells)** — self-avoidance collapses |
-| v15 | 06-28 | 20² | wall = 82% body deaths; β reward lever tapped out | **action-masking** the action space (open-Q#3 opt 2): safety (mask wall/body suicide) + cycle | safety **0.716 peak / 18% win** (beats v14's 0.645); cycle timeout-defeated 0.21 | masking lifts the ceiling but is **unstable late** (failure shifts body→timeout); **current frontier** |
+| v15 | 06-28 | 20² | wall = 82% body deaths; β reward lever tapped out | **action-masking** the action space (open-Q#3 opt 2): safety (mask wall/body suicide) + cycle | safety **0.716 peak / 18% win** (beats v14's 0.645); cycle timeout-defeated 0.21 | masking lifts the ceiling but is **unstable late** (failure shifts body→timeout) |
+| v16 | 06-28 | 20² | v15 masking decays from its peak late | safety-mask + **LR anneal** base→0 over 1000 upд (stability lever) | **0.765 peak, HOLDS 0.728, win 27%** (vs v15 decaying to 0.18/0.47) | single-seed; confirm + climb the ladder (24×24) — **current frontier** |
 
 **Verified-number note.** v12–v15 figures are recomputed from `runs/*/metrics.jsonl` (roll-100 `avg_coverage`,
 final death mix), not just memory. v1–v11 figures are from the per-version docs / design packet.
@@ -210,7 +211,7 @@ final death mix), not just memory. v1–v11 figures are from the per-version doc
 
 ---
 
-## v15 — Action-masking the self-trap wall (20×20) · **current frontier**
+## v15 — Action-masking the self-trap wall (20×20)
 
 - **Challenge.** v14's wall: at 20×20 the locked β=0.15/win=20 recipe plateaus at 0.645 with **82% body deaths**,
   and the β reward lever is tapped out (v13 showed β>0.15 destabilizes). Open-Q#3's remaining option: constrain
@@ -229,26 +230,43 @@ final death mix), not just memory. v1–v11 figures are from the per-version doc
     by-construction fill is real (proven by the cycle check in `verify_action_masking.py`) but needs a relaxed
     `max_steps_factor` to show.
   - **Bracket:** v14 shaping 0.645 → **safety 0.716** → cycle (given time) ~1.0.
-- **Gap — masking lifts the ceiling but destabilizes late.** safety peaks at 0.716 then **collapses to ~0.18** by
-  upд~2200: with suicide forbidden, a degraded late policy **wanders to the timeout (34%)** instead of dying — the
-  failure mode shifts **body → timeout**. The peak is preserved in `best.pt`, but the *plateau* is unstable. →v16.
+- **Gap — masking lifts the ceiling but destabilizes late.** **2-seed confirmed** (seed-1 peak 0.716, seed-2
+  0.756 — both clear v14's 0.645, win 13–18%), so the win is real. But **both seeds decay from the peak**: seed-1
+  collapses hard to 0.18 via **timeout (34%)** (suicide forbidden → a degraded policy wanders to the 200·len
+  timeout); seed-2 decays milder to ~0.47 via body (timeout 0%) — so the catastrophic-timeout mode is partly
+  seed-specific, but "decays from peak" is consistent. `best.pt` holds the peak; the *plateau* doesn't. →v16.
 
 ---
 
+## v16 — Stabilize the masked peak: LR annealing (20×20) · **current frontier**
+
+- **Challenge.** v15 masking clears the wall (2-seed peak 0.716/0.756) but **decays from the peak** late — a stable
+  high plateau, not just a transient peak, is what's deployable.
+- **Tested.** v15 safety-mask + ONE change: linearly anneal the learning rate base→0 over `lr_anneal_updates`
+  (`ppo.anneal_lr`; absolute-update so it's `--resume`-safe), the standard PPO fix for late peak-then-decay. High
+  LR early (fast climb to the ~upд350 peak), then progressively freezes (lr=0 by upд1000) to kill the late
+  divergence. Single variable vs v15 seed-1 (same init-from C2). Run `runs/0628_14_coverage-20x20-mask-anneal`,
+  config `coverage_20x20_v16.yaml`. (Resumed once past a short backstop to reach the lr=0 regime.)
+- **Solution — the anneal HOLDS the peak.** **0.765 roll-cov peak, HOLDS 0.728 @upд1354 in the frozen (lr=0)
+  regime, win 27%** (timeout 1%) — vs v15 decaying to 0.18/0.47. Best **stable** result at 20×20, and the highest
+  win rate yet. `best.pt` holds the 0.765 peak. **Progression: v14 0.645 → v15 0.716/0.756 peak (decays) → v16
+  0.765 peak, HOLDS 0.728.**
+- **Gap.** Single-seed (confirm with a 2nd). And it's still 20×20 — the open question is whether masking + a held
+  plateau lets the **curriculum climb the board ladder again (24×24→…)**, where v14's shaping recipe had walled. →v17.
+
 ## Current status & next step (as of 2026-06-28)
 
-- **Frontier:** v15 / 20×20 action-masking. **safety-mask BEAT v14** — peak 0.716 / 18% win
-  (`runs/0628_07_coverage-20x20-mask-safety/checkpoints/best.pt`) vs v14's 0.645 / ~5%. **Open-Q#3 resolves in
-  masking's favor: constraining the action space beats the β reward lever at 400 cells.** Nothing training now.
-- **Caveat:** safety-mask is **unstable late** (collapses 0.716→0.18 via timeout). The deployable policy is the
-  peak (`best.pt`); the plateau is not. cycle-mask was timeout-defeated (0.21) under the 200·len budget.
+- **Frontier:** v16 / 20×20 = safety action-mask **+ LR annealing**. **0.765 peak, HOLDS 0.728, win 27%**
+  (`runs/0628_14_coverage-20x20-mask-anneal/checkpoints/best.pt`) — a *stable* plateau, vs v15's decay to
+  0.18/0.47 and v14's 0.645. The two-step result: **masking (v15) breaks the wall; LR-anneal (v16) holds it.**
+- **Caveat:** v16 is single-seed (v15's masking is 2-seed confirmed). cycle-mask remains timeout-defeated (0.21)
+  under the 200·len budget.
 - **Next steps, in order:**
-  1. **Confirm 0.716 with a 2nd seed** — single-seed so far; the project rule is multi-seed any claim. Also tells
-     whether the late collapse is a consistent masking property or seed noise.
-  2. **Stabilize the peak** — LR-decay / entropy-anneal late phase, or early-stop on the coverage peak, to turn
-     the 0.716 peak into a held plateau (the v16 challenge).
-  3. **True cycle ceiling** — rerun cycle-mask with a large `max_steps_factor` (200·len defeated it at 0.21).
-  4. **Then** revisit the board-size ladder (24×24→…) now that masking moves the wall.
+  1. **Confirm v16 with a 2nd seed** — the held 0.728 / win 27% on a fresh seed (project rule: multi-seed any claim).
+  2. **Climb the board ladder again (24×24, then 28²/32²) — v17, LAUNCHING NOW** — warm-start the v16 20×20
+     policy up to 24×24 with the same safety-mask + LR-anneal recipe. v14's shaping recipe walled at 20×20; the
+     test is whether masking + a held plateau lets the curriculum resume climbing.
+  3. **Optional:** true cycle ceiling (relaxed `max_steps_factor`); entropy-anneal as an alternative stability lever.
 
 ## How the numbering maps to artifacts
 
@@ -265,6 +283,9 @@ final death mix), not just memory. v1–v11 figures are from the per-version doc
   `training.vectorized_env`). Config `config/training/coverage_20x20_v15.yaml` (`mask_mode`). Runs: safety
   `runs/0628_07…-mask-safety`, cycle `runs/0628_09…-mask-cycle`. Gates: `verify_action_masking.py` (9/9),
   `verify_vec_env.py` (5/5, batched-env equivalence). Local speed thermal-capped; batched env ready for CUDA.
+- **v16**: commits `73022f0` (`ppo.anneal_lr` + `lr_anneal_updates` LR schedule) / `79ea041` (absolute-update so
+  the schedule is `--resume`-safe). Config `config/training/coverage_20x20_v16.yaml` (clone of v15 + anneal).
+  Run `runs/0628_14_coverage-20x20-mask-anneal` (single seed; resumed once to reach the lr=0 regime).
 - **Negative/abandoned**: `0611_08_coverage-20x20-b15-w20` (first D attempt, inherited a half-baked C, showed
   first-ever timeouts at 400 cells — abandoned, replaced by the `-v2` D2 run). v15 safety first crash
   `runs/0628_06…-mask-safety` (the `-inf` NaN @upд229, pre-fix — superseded by `0628_07`).
