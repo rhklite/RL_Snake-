@@ -5,9 +5,9 @@ Each version = one coherent hypothesis test (a run, or a focused decision applie
 This is the canonical history; the per-version files hold full detail.
 
 > **Start here:** [HISTORY.md](HISTORY.md) is the consolidated **challenge → test → solution → gap**
-> chain across *all* iterations (v0→v16), where each gap motivates the next. This README is the
+> chain across *all* iterations (v0→v19), where each gap motivates the next. This README is the
 > table-of-contents + open-questions ledger; HISTORY.md is the narrative spine. v1–v10 also have
-> standalone per-version files; v11–v16 detail lives in HISTORY.md.
+> standalone per-version files; v11–v19 detail lives in HISTORY.md.
 >
 > **How to use this:** before starting a new experiment, read the latest version file and the
 > [open questions](#open-questions-carried-forward). When you finish a run, add a new `vN+1`
@@ -34,6 +34,7 @@ This is the canonical history; the per-version files hold full detail.
 | v14 *([HISTORY](HISTORY.md))* | 2026-06-10→12 | 12→20² | Scale locked recipe up the ladder (A/C/D) | **wall** | 12²=0.903, 16²=0.82, **20²=0.645 (82% body)** — self-avoidance collapses |
 | v15 *([HISTORY](HISTORY.md))* | 2026-06-28 | 20×20 | **Action-masking** the action space (safety + cycle), open-Q#3 opt 2 | **success (peak)** | safety **0.716 / 18% win** beats v14's 0.645; unstable late (→timeout 34%); cycle timeout-defeated 0.21 |
 | v16 *([HISTORY](HISTORY.md))* | 2026-06-28 | 20×20 | Safety-mask + **LR anneal** base→0 (stability lever) | **success (stable)** | **0.765 peak, HOLDS 0.728, win 27%** — fixes v15's decay; best stable result |
+| v17–v19 *([HISTORY](HISTORY.md))* | 2026-06-28→29 | 24²/22² | Climb the ladder: masked recipe past 20×20 (mask-first / mask-later / 22×22) | **negative** | masking ceilings at 20×20 — 22²/24² all collapse to ~0.10, 66–83% timeout-wander |
 
 **Trajectory:** food-seeking optimization (v1–v5) plateaued at ~10% grid fill on 32×32 no matter
 the observation richness — the bottleneck was the *objective*, not the network. v6 reframed the
@@ -48,7 +49,11 @@ the locked recipe. v14 scaled it up the ladder (12²=0.903, 16²=0.82) until it 
 (0.645, 82% self-trap deaths)**; v15 then **broke the wall with action-masking** — masking off wall/body
 suicides (open-Q#3 opt 2) reached **0.716/0.756 peak (2-seed) / 13–18% win**, beating v14, though it
 decays from the peak late; v16 **fixed the decay with LR annealing** — a *stable* **0.765 peak holding
-0.728, win 27%**, the current frontier. Full chain: [HISTORY.md](HISTORY.md); forward
+0.728, win 27%**, the best stable result. v17–v19 then tried to **climb the ladder past 20×20** (24×24
+mask-first, mask-later, and a gentler 22×22 step) and all **failed** — masking's benefit ceilings sharply
+at 20×20; beyond it the masked snake **wanders to timeout** (no death + `step_penalty=0` makes circling
+free). So **v16's 0.728 @20×20 is the banked headline**; the 24×24 wall is the current frontier (next:
+re-add a small step penalty so wandering is costly). Full chain: [HISTORY.md](HISTORY.md); forward
 plan: [full-coverage-design.md](../full-coverage-design.md).
 
 ## v0 — pre-history (not numbered)
